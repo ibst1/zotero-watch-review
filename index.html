@@ -61,7 +61,8 @@
   .abstract { font-size: 15px; white-space: pre-wrap; }
   .abstract.clamped { display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
   .linkish { background: none; border: 0; color: var(--accent); padding: 4px 0; cursor: pointer; font-size: 14px; }
-  .links { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 14px; }
+  .links { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 10px; font-size: 14px; }
+  .links .oa { background: var(--keep); color: #fff; border-radius: 999px; padding: 7px 14px; font-weight: 600; text-decoration: none; }
   .progress { color: var(--muted); font-size: 13px; text-align: center; margin: 10px 0 0; }
   .actions { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--bg); border-top: 1px solid var(--line);
     padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); display: grid; grid-template-columns: auto 1fr 1fr 1fr auto; gap: 8px; }
@@ -180,6 +181,7 @@ const NOTE_TAG = "claude-bevakning";
 const ORIGIN_TAG = "från-bevakning"; // on what you read or keep: where it came from
 const PROJECT_TAG = "projekt: ";       // "projekt: F – 2610. Artikel - X": Partitur puts the item in that project's list
 const PROJECT_LIST_TAG = "partitur-projekt"; // Partitur's note listing the active projects
+const OPENALEX = "https://api.openalex.org"; // where a free full text is found, by DOI (no key needed)
 const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
 // why you reject: shown in English, saved in Swedish as the tag "avvisad: …" (Partitur reads it)
 const REJECT_PREFIX = "avvisad: ";
@@ -205,7 +207,7 @@ const state = {
   watch: [],            // [{key, top, topName, label}] – the Bevakning collections
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
-  index: 0, notes: new Map(), busy: false,
+  index: 0, notes: new Map(), busy: false, openAccess: new Map(),
   history: [],          // [{label, item, revert}] – every change this session, the newest last (Undo takes them back)
   projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
 };
@@ -345,6 +347,25 @@ const projectName = label => label.replace(/^[A-Z]\s*[–-]\s*/, "");
 const projectVault = label => label.slice(0, 1);
 const itemProjects = d => (d.tags || []).map(t => t.tag).filter(t => t.toLowerCase().startsWith(PROJECT_TAG)).map(t => t.slice(PROJECT_TAG.length).trim());
 
+// a free full text of the item, by its DOI: {url, pdf} or null
+async function openAccess(item) {
+  const doi = (item.data.DOI || "").trim();
+  if (!doi) return null;
+  if (state.openAccess.has(item.key)) return state.openAccess.get(item.key);
+  let found = null;
+  try {
+    const res = await fetch(`${OPENALEX}/works/doi:${encodeURI(doi)}?select=open_access,best_oa_location`);
+    if (res.ok) {
+      const w = await res.json();
+      const best = w.best_oa_location || {};
+      const url = best.pdf_url || (w.open_access || {}).oa_url || best.landing_page_url;
+      if ((w.open_access || {}).is_oa && url) found = { url, pdf: !!best.pdf_url };
+    }
+  } catch (e) { /* none found: no button */ }
+  state.openAccess.set(item.key, found);
+  return found;
+}
+
 async function whyNote(item) {
   if (state.notes.has(item.key)) return state.notes.get(item.key);
   const kids = await (await api("GET", userPath(`/items/${item.key}/children`))).json();
@@ -411,7 +432,7 @@ function render() {
         <button class="add-project" id="add-project">＋ Project</button></div>
       ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
         <button class="linkish" id="more" hidden>Show all</button>` : `<p class="hint">No abstract.</p>`}
-      <div class="links">
+      <div class="links" id="links">
         ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">DOI</a>` : ""}
         ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Web page</a>` : ""}
         <a href="https://www.google.com/search?q=${encodeURIComponent(d.title || "")}" target="_blank" rel="noopener">Search</a>
@@ -426,6 +447,12 @@ function render() {
   setActions(true);
   document.getElementById("add-project").onclick = openProjects;
   for (const b of document.querySelectorAll("[data-unproject]")) b.onclick = () => setProject(b.dataset.unproject, false);
+  openAccess(item).then(oa => {
+    const links = document.getElementById("links");
+    if (!oa || !links || current() !== item) return;
+    links.insertAdjacentHTML("afterbegin",
+      `<a class="oa" href="${esc(oa.url)}" target="_blank" rel="noopener">${oa.pdf ? "Open PDF" : "Free full text"}</a>`);
+  });
   whyNote(item).then(html => {
     const box = document.getElementById("why");
     if (!box || visible()[state.index] !== item || !html) return;

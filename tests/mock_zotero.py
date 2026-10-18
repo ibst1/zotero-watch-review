@@ -38,7 +38,7 @@ def article(key, title, authors, journal, date, coll, abstract="", kind="journal
 
 items = {i["key"]: i for i in [
     article("IT01", "Modeling Wilms Tumor Development in Kidney Organoids", ["Gong", "Li", "Wang", "Chen"],
-            "Cancer Research", "2026-10-10", "WATF", LONG, doi="10.1158/0008-5472.CAN-26-0001"),
+            "Cancer Research", "2026-10-10", "WATF", LONG, doi="10.1038/s41586-020-2649-2"),  # a real open-access DOI
     article("IT02", "Methylation-defined tumour subtypes in paediatric renal cancer", ["Oberhammer", "Pfister"],
             "Acta Neuropathologica", "2026-10-11", "WATF", "Short abstract.", doi="10.1007/s00401-026-0002"),
     article("IT03", "Textbook Outcome in Pediatric Oncology Surgery", ["Ghandour"], "medRxiv", "2026-10-12", "WATF",
