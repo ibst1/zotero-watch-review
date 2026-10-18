@@ -69,6 +69,7 @@
   .meta-top { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 6px; flex-wrap: wrap; }
   .rel { margin-left: auto; font-weight: 600; }
   .rel.high { color: var(--keep); }
+  .rel.low { color: var(--reject); font-weight: 500; }
   .badge { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-weight: 600; color: var(--text); }
   .card h2 { font-size: 19px; line-height: 1.3; margin: 0 0 6px; }
   .authors, .source { color: var(--muted); font-size: 14px; margin: 0 0 2px; }
@@ -645,10 +646,10 @@ async function load(skipSources) {
   }
 }
 
-// Claude's relevance from its note ("Relevans: hög."): 0 high, 1 medium, 2 not known
+// Claude's relevance from its note ("Relevans: hög."): 0 high, 1 medium, 2 low, 3 not known
 function relevance(item) {
-  const m = /Relevans:\s*(hög|medel)/i.exec(state.notes.get(item.key) || "");
-  return m ? (m[1].toLowerCase() === "hög" ? 0 : 1) : 2;
+  const m = /Relevans:\s*(hög|medel|låg)/i.exec(state.notes.get(item.key) || "");
+  return m ? { "hög": 0, "medel": 1, "låg": 2 }[m[1].toLowerCase()] : 3;
 }
 
 // the most relevant first, then the oldest first
@@ -827,7 +828,8 @@ function render() {
     <article class="card" id="card">
       <span class="swipe-hint keep" id="hint-keep">Keep</span><span class="swipe-hint reject" id="hint-reject">Reject</span>
       <div class="meta-top"><span class="badge">${esc(item.watch.label)}</span><span>${esc(type)}</span>
-        ${["<span class=\"rel high\">High relevance</span>", "<span class=\"rel\">Medium relevance</span>", ""][relevance(item)]}</div>
+        ${["<span class=\"rel high\">High relevance</span>", "<span class=\"rel\">Medium relevance</span>",
+           "<span class=\"rel low\">Low relevance</span>", ""][relevance(item)]}</div>
       <h2>${esc(d.title)}</h2>
       ${authors(d) ? `<p class="authors">${esc(authors(d))}</p>` : ""}
       ${source ? `<p class="source">${esc(source)}</p>` : ""}
