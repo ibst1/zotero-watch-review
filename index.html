@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
      Zotero Watch Review – Copyright (C) 2026 Sebastian Ibstedt
      Go through the items Partitur's literature watch has put in "<top> / Bevakning", one at a time, on the
-     phone: read (a reading tag), keep (into a collection), reject (to the trash) – straight through Zotero's
+     phone: read (a reading tag), keep, reject (to the trash) – straight through Zotero's
      web API with your own key, which stays in this browser. -->
 <html lang="en">
 <head>
@@ -78,13 +78,6 @@
   .sheet h3 { margin: 0 0 10px; font-size: 17px; }
   .sheet .label { font-size: 13px; color: var(--muted); margin: 10px 0 6px; }
   .tagchips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .search { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; }
-  .colls { overflow-y: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; min-height: 120px; }
-  .coll { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line);
-    padding: 11px 12px; cursor: pointer; font-size: 15px; }
-  .coll:last-child { border-bottom: 0; }
-  .coll[aria-pressed="true"] { background: var(--chip); font-weight: 600; }
-  .coll small { color: var(--muted); display: block; font-size: 12px; }
   .sheet-buttons { display: flex; gap: 8px; margin-top: 12px; }
   .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
   .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -122,19 +115,9 @@
 
 <section class="sheet" id="sheet-read" aria-label="Read">
   <h3>Read</h3>
-  <div class="label">Reading tag</div>
+  <p class="hint">Pick the reading tag. The item goes to its field’s top collection, where Partitur’s Claude sorts it.</p>
   <div class="tagchips" id="read-tags"></div>
-  <div class="label">Put it in</div>
-  <input class="search" id="read-search" type="search" placeholder="Filter collections" autocomplete="off">
-  <div class="colls" id="read-colls"></div>
-  <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="read-ok">Read</button></div>
-</section>
-
-<section class="sheet" id="sheet-keep" aria-label="Keep">
-  <h3>Keep</h3>
-  <input class="search" id="keep-search" type="search" placeholder="Filter collections" autocomplete="off">
-  <div class="colls" id="keep-colls"></div>
-  <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="keep-ok">Keep</button></div>
+  <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
 
 <section class="sheet" id="sheet-settings" aria-label="Settings">
@@ -157,6 +140,7 @@
 const WATCH_COLLECTION = "Bevakning";
 const WATCH_TAG = "bevakning";
 const NOTE_TAG = "claude-bevakning";
+const ORIGIN_TAG = "från-bevakning"; // on what you read or keep: where it came from
 const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
 // this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
 const store = {
@@ -356,49 +340,7 @@ function render() {
   }).catch(() => {});
 }
 
-// ---------------------------------------------------------------- collection picker
-
-// the collections an item can go to: its field's top collection (Claude sorts it from there) and everything under it
-function choicesFor(item) {
-  const children = new Map();
-  for (const c of state.collections) {
-    if (!c.parentCollection) continue;
-    if (!children.has(c.parentCollection)) children.set(c.parentCollection, []);
-    children.get(c.parentCollection).push(c);
-  }
-  const out = [];
-  const walk = (key, path) => {
-    for (const c of (children.get(key) || []).sort((a, b) => a.name.localeCompare(b.name, "sv"))) {
-      if (c.key === item.watch.key) continue;
-      out.push({ key: c.key, name: c.name, path });
-      walk(c.key, path ? `${path} / ${c.name}` : c.name);
-    }
-  };
-  walk(item.watch.top, "");
-  return [{ key: item.watch.top, name: item.watch.topName, path: "", hint: "Partitur’s Claude sorts it into a subcollection" }, ...out];
-}
-
-function picker(listEl, searchEl, item, current) {
-  const choices = choicesFor(item);
-  let chosen = current && choices.some(c => c.key === current) ? current : choices[0].key;
-  const draw = () => {
-    const q = searchEl.value.trim().toLowerCase();
-    listEl.innerHTML = choices
-      .filter(c => !q || `${c.path} ${c.name}`.toLowerCase().includes(q))
-      .map(c => `<button class="coll" data-key="${c.key}" aria-pressed="${c.key === chosen}">${esc(c.name)}
-        ${c.hint || c.path ? `<small>${esc(c.hint || c.path)}</small>` : ""}</button>`).join("")
-      || `<div class="notice">No collection matches.</div>`;
-  };
-  listEl.onclick = e => { const b = e.target.closest(".coll"); if (b) { chosen = b.dataset.key; draw(); } };
-  searchEl.value = "";
-  searchEl.oninput = draw;
-  draw();
-  return () => chosen;
-}
-
 // ---------------------------------------------------------------- actions
-
-let readChosen = null, keepChosen = null;
 
 function openSheet(id) {
   document.getElementById("scrim").classList.add("open");
@@ -412,47 +354,37 @@ function closeSheets() {
 function current() { return visible()[state.index]; }
 
 function openRead() {
-  const item = current(); if (!item) return;
-  let tag = store.get("readTag") || READING_TAGS[0];
+  if (!current()) return;
+  const last = store.get("readTag") || READING_TAGS[0];
   const tags = document.getElementById("read-tags");
-  const draw = () => tags.innerHTML = READING_TAGS.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === tag}">${t}</button>`).join("");
-  tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) { tag = b.dataset.tag; draw(); } };
-  draw();
-  const chosen = picker(document.getElementById("read-colls"), document.getElementById("read-search"), item, null);
-  readChosen = () => ({ tag, collection: chosen() });
+  tags.innerHTML = READING_TAGS.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
+  tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag); };
   openSheet("sheet-read");
 }
 
-function openKeep() {
-  const item = current(); if (!item) return;
-  const chosen = picker(document.getElementById("keep-colls"), document.getElementById("keep-search"), item, null);
-  keepChosen = () => ({ collection: chosen() });
-  openSheet("sheet-keep");
-}
-
-// out of Bevakning into the chosen collection, the tag bevakning off (gone through), maybe a reading tag on
-function moveFields(data, collection, readTag) {
+// out of Bevakning into the field's top collection (Claude sorts it from there); the tag bevakning off (gone
+// through), the origin tag on, and maybe a reading tag
+function moveFields(item, data, readTag) {
   const watchKeys = new Set(state.watch.map(w => w.key));
-  const collections = [...new Set([...(data.collections || []).filter(k => !watchKeys.has(k)), collection])];
-  const tags = (data.tags || []).filter(t => t.tag !== WATCH_TAG && t.tag !== readTag);
+  const collections = [...new Set([...(data.collections || []).filter(k => !watchKeys.has(k)), item.watch.top])];
+  const drop = new Set([WATCH_TAG, ORIGIN_TAG, readTag]);
+  const tags = (data.tags || []).filter(t => !drop.has(t.tag));
+  tags.push({ tag: ORIGIN_TAG });
   if (readTag) tags.push({ tag: readTag });
   return { collections, tags };
 }
 
-async function act(kind) {
+async function act(kind, readTag) {
   const item = current(); if (!item || state.busy) return;
   const before = { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
   let build, message;
   if (kind === "read") {
-    const { tag, collection } = readChosen();
-    store.set("readTag", tag);
-    build = data => moveFields(data, collection, tag);
-    message = `Tagged ${tag}`;
+    store.set("readTag", readTag);
+    build = data => moveFields(item, data, readTag);
+    message = `Tagged ${readTag}`;
   } else if (kind === "keep") {
-    const { collection } = keepChosen();
-    build = data => moveFields(data, collection, null);
-    const c = state.collections.find(c => c.key === collection);
-    message = `Kept in ${c ? c.name : "the collection"}`;
+    build = data => moveFields(item, data, null);
+    message = `Kept – into ${item.watch.topName}`;
   } else {
     build = () => ({ deleted: 1 });
     message = "Moved to the trash";
@@ -529,11 +461,9 @@ async function saveSettings() {
 // ---------------------------------------------------------------- wiring
 
 document.getElementById("act-read").onclick = openRead;
-document.getElementById("act-keep").onclick = openKeep;
+document.getElementById("act-keep").onclick = () => act("keep");
 document.getElementById("act-reject").onclick = () => act("reject");
 document.getElementById("act-skip").onclick = () => { const n = visible().length; if (n) { state.index = (state.index + 1) % n; render(); window.scrollTo(0, 0); } };
-document.getElementById("read-ok").onclick = () => act("read");
-document.getElementById("keep-ok").onclick = () => act("keep");
 document.getElementById("refresh").onclick = () => { state.notes.clear(); load(); };
 document.getElementById("open-settings").onclick = () => openSettings(false);
 document.getElementById("set-save").onclick = saveSettings;
