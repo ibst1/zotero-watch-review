@@ -1,0 +1,150 @@
+"""A stand-in for Zotero's web API with a small made-up library, for trying the app without touching a real one.
+
+    python tests/mock_zotero.py            -> http://localhost:8765/?api=http://localhost:8765  (any key works)
+
+Serves the app's files too. GET /_state shows the items as they are now; GET /_bump/<key> changes an item's
+version, as a sync from another computer would (the app's next change to it then meets a conflict).
+"""
+
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+ROOT = Path(__file__).resolve().parent.parent
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+USER = "1"
+LONG = ("Wilms tumour is the most common renal cancer of childhood. " * 14).strip()
+
+collections = [
+    {"key": "TOPF", "name": "F – Forskning", "parentCollection": False},
+    {"key": "WATF", "name": "Bevakning", "parentCollection": "TOPF"},
+    {"key": "GEN1", "name": "Genetik", "parentCollection": "TOPF"},
+    {"key": "WILM", "name": "Wilms tumör", "parentCollection": "GEN1"},
+    {"key": "METH", "name": "Metylering", "parentCollection": "TOPF"},
+    {"key": "TOPT", "name": "T – Tro, tanke & teologi", "parentCollection": False},
+    {"key": "WATT", "name": "Bevakning", "parentCollection": "TOPT"},
+    {"key": "APOL", "name": "Apologetik", "parentCollection": "TOPT"},
+]
+
+
+def article(key, title, authors, journal, date, coll, abstract="", kind="journalArticle", doi=""):
+    return {"key": key, "version": 10, "itemType": kind, "title": title, "date": date,
+            "creators": [{"creatorType": "author", "firstName": "A.", "lastName": a} for a in authors],
+            "publicationTitle": journal, "abstractNote": abstract, "DOI": doi, "url": f"https://doi.org/{doi}" if doi else "",
+            "collections": [coll], "tags": [{"tag": "bevakning"}], "dateAdded": f"{date}T08:00:00Z"}
+
+
+items = {i["key"]: i for i in [
+    article("IT01", "Modeling Wilms Tumor Development in Kidney Organoids", ["Gong", "Li", "Wang", "Chen"],
+            "Cancer Research", "2026-10-10", "WATF", LONG, doi="10.1158/0008-5472.CAN-26-0001"),
+    article("IT02", "Methylation-defined tumour subtypes in paediatric renal cancer", ["Oberhammer", "Pfister"],
+            "Acta Neuropathologica", "2026-10-11", "WATF", "Short abstract.", doi="10.1007/s00401-026-0002"),
+    article("IT03", "Textbook Outcome in Pediatric Oncology Surgery", ["Ghandour"], "medRxiv", "2026-10-12", "WATF",
+            kind="preprint"),
+    article("IT04", "Unexpected patterns, irrelevance, and scientific explanation", ["Southgate", "Robinson"],
+            "Zygon", "2026-10-09", "WATT", "On fine-tuning and explanation."),
+    article("IT05", "Finding Ourselves After Darwin", ["Rosenberg"], "", "2026-10-13", "WATT", kind="book"),
+]}
+for i in items.values():
+    if i["itemType"] == "book":
+        i.pop("publicationTitle")
+        i["publisher"] = "Baker Academic"
+notes = {k: {"key": f"N{k}", "itemType": "note", "parentItem": k, "tags": [{"tag": "claude-bevakning"}],
+             "note": f"<h1>Bevakning: varför</h1>\n<p>Relevant for the project on {items[k]['title'][:30]}.</p>\n"
+                     "<p><strong>Projekt:</strong> Wilms</p>\n<p><em>Relevans: hög.</em></p>"} for k in items}
+library_version = [100]
+
+
+def wrap(data):
+    return {"key": data["key"], "version": data.get("version", 1), "data": data}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s %s\n" % (self.command, self.path))
+
+    def send(self, status, body=None, headers=None):
+        raw = b"" if body is None else json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Expose-Headers", "Total-Results, Last-Modified-Version, Retry-After")
+        if body is not None:
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+        for k, v in (headers or {}).items():
+            self.send_header(k, str(v))
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
+    def page(self, rows, q):
+        start, limit = int(q.get("start", ["0"])[0]), int(q.get("limit", ["25"])[0])
+        self.send(200, rows[start:start + limit], {"Total-Results": len(rows)})
+
+    def do_GET(self):
+        url = urlparse(self.path)
+        q, parts = parse_qs(url.query), [p for p in url.path.split("/") if p]
+        if parts[:1] == ["keys"]:
+            return self.send(200, {"userID": int(USER), "access": {"user": {"library": True, "write": True}}})
+        if parts == ["_state"]:
+            return self.send(200, items)
+        if parts[:1] == ["_bump"]:
+            items[parts[1]]["version"] += 1
+            return self.send(200, {"version": items[parts[1]]["version"]})
+        if parts[:2] == ["users", USER]:
+            rest = parts[2:]
+            if rest == ["collections"]:
+                return self.page([wrap(c) for c in collections], q)
+            if len(rest) == 4 and rest[0] == "collections" and rest[2:] == ["items", "top"]:
+                tag = q.get("tag", [None])[0]
+                rows = [i for i in items.values() if rest[1] in i["collections"] and not i.get("deleted")
+                        and (tag is None or any(t["tag"] == tag for t in i["tags"]))]
+                return self.page([wrap(i) for i in sorted(rows, key=lambda i: i["dateAdded"])], q)
+            if len(rest) == 3 and rest[0] == "items" and rest[2] == "children":
+                return self.send(200, [wrap(notes[rest[1]])] if rest[1] in notes else [])
+            if len(rest) == 2 and rest[0] == "items":
+                return self.send(200, wrap(items[rest[1]]))
+            return self.send(404, {"error": "unknown"})
+        # the app's own files
+        name = url.path.lstrip("/") or "index.html"
+        path = (ROOT / name).resolve()
+        if ROOT not in path.parents or not path.is_file():
+            return self.send(404, {"error": "no such file"})
+        raw = path.read_bytes()
+        types = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".svg": "image/svg+xml",
+                 ".png": "image/png", ".webmanifest": "application/manifest+json"}
+        self.send_response(200)
+        self.send_header("Content-Type", types.get(path.suffix, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_PATCH(self):
+        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        if not (parts[:3] == ["users", USER, "items"] and len(parts) == 4 and parts[3] in items):
+            return self.send(404, {"error": "unknown"})
+        item = items[parts[3]]
+        if int(self.headers.get("If-Unmodified-Since-Version", "-1")) != item["version"]:
+            return self.send(412)
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        for k, v in body.items():
+            if k == "deleted" and not v:
+                item.pop("deleted", None)
+            else:
+                item[k] = v
+        library_version[0] += 1
+        item["version"] = library_version[0]
+        self.send(204, None, {"Last-Modified-Version": item["version"]})
+
+
+if __name__ == "__main__":
+    print(f"http://localhost:{PORT}/?api=http://localhost:{PORT}")
+    ThreadingHTTPServer(("localhost", PORT), Handler).serve_forever()

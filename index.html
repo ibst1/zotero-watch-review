@@ -1,0 +1,554 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     Zotero Watch Review – Copyright (C) 2026 Sebastian Ibstedt
+     Go through the items Partitur's literature watch has put in "<top> / Bevakning", one at a time, on the
+     phone: read (a reading tag), keep (into a collection), reject (to the trash) – straight through Zotero's
+     web API with your own key, which stays in this browser. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Watch Review</title>
+<meta name="description" content="Go through Zotero's Bevakning items on the phone: read, keep or reject.">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1d21; --muted: #5d6470; --line: #e2e5ea;
+    --accent: #2f6fde; --accent-text: #ffffff; --read: #2f6fde; --keep: #1f8a4c; --reject: #c23b30;
+    --chip: #eef1f5; --why: #fff8e5; --why-line: #f0dca0; --shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181c; --card: #1f2227; --text: #e8eaee; --muted: #9aa1ad; --line: #30343b;
+      --accent: #5b8ff0; --read: #5b8ff0; --keep: #3fb071; --reject: #e0645a;
+      --chip: #2a2e35; --why: #2b2716; --why-line: #5a4d22; --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181c; --card: #1f2227; --text: #e8eaee; --muted: #9aa1ad; --line: #30343b;
+    --accent: #5b8ff0; --read: #5b8ff0; --keep: #3fb071; --reject: #e0645a;
+    --chip: #2a2e35; --why: #2b2716; --why-line: #5a4d22; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
+  button { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  .icon-btn { background: none; border: 0; padding: 8px; border-radius: 8px; cursor: pointer; color: var(--muted); }
+  .icon-btn:active { background: var(--chip); }
+  .fields { display: flex; gap: 6px; padding: 10px 16px 0; overflow-x: auto; }
+  .chip { border: 1px solid var(--line); background: var(--chip); border-radius: 999px; padding: 5px 12px;
+    font-size: 14px; white-space: nowrap; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  main { padding: 12px 16px calc(env(safe-area-inset-bottom) + 96px); max-width: 720px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
+  .meta-top { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 6px; flex-wrap: wrap; }
+  .badge { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-weight: 600; color: var(--text); }
+  .card h2 { font-size: 19px; line-height: 1.3; margin: 0 0 6px; }
+  .authors, .source { color: var(--muted); font-size: 14px; margin: 0 0 2px; }
+  .why { background: var(--why); border: 1px solid var(--why-line); border-radius: 10px; padding: 10px 12px; margin: 12px 0; font-size: 15px; }
+  .why p { margin: 0 0 6px; } .why p:last-child { margin-bottom: 0; }
+  .why h1 { display: none; }
+  .abstract { font-size: 15px; white-space: pre-wrap; }
+  .abstract.clamped { display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+  .linkish { background: none; border: 0; color: var(--accent); padding: 4px 0; cursor: pointer; font-size: 14px; }
+  .links { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 14px; }
+  .progress { color: var(--muted); font-size: 13px; text-align: center; margin: 10px 0 0; }
+  .actions { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--bg); border-top: 1px solid var(--line);
+    padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; }
+  .act { border: 0; border-radius: 12px; padding: 13px 4px; font-weight: 600; cursor: pointer; color: #fff; }
+  .act.read { background: var(--read); } .act.keep { background: var(--keep); } .act.reject { background: var(--reject); }
+  .act.skip { background: var(--chip); color: var(--text); padding: 13px 14px; }
+  .act:disabled { opacity: .45; }
+  .empty, .notice { text-align: center; color: var(--muted); padding: 48px 12px; }
+  .notice.error { color: var(--reject); }
+  /* sheets */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 10; display: none; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; background: var(--card); border-radius: 16px 16px 0 0;
+    max-height: 85vh; display: none; flex-direction: column; padding: 16px 16px calc(env(safe-area-inset-bottom) + 14px);
+    max-width: 720px; margin: 0 auto; }
+  .sheet.open, .scrim.open { display: flex; }
+  .sheet h3 { margin: 0 0 10px; font-size: 17px; }
+  .sheet .label { font-size: 13px; color: var(--muted); margin: 10px 0 6px; }
+  .tagchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .search { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; }
+  .colls { overflow-y: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; min-height: 120px; }
+  .coll { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 11px 12px; cursor: pointer; font-size: 15px; }
+  .coll:last-child { border-bottom: 0; }
+  .coll[aria-pressed="true"] { background: var(--chip); font-weight: 600; }
+  .coll small { color: var(--muted); display: block; font-size: 12px; }
+  .sheet-buttons { display: flex; gap: 8px; margin-top: 12px; }
+  .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
+  .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .field { display: block; margin: 10px 0; }
+  .field input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; }
+  .hint { font-size: 13px; color: var(--muted); }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 20; max-width: 520px; margin: 0 auto;
+    background: #2b2f36; color: #fff; border-radius: 12px; padding: 10px 12px; display: none; align-items: center; gap: 10px; font-size: 15px; }
+  .toast.open { display: flex; }
+  .toast span { flex: 1; }
+  .toast button { background: none; border: 0; color: #9cc0ff; font-weight: 700; cursor: pointer; padding: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bevakning</h1>
+  <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+  </button>
+  <button class="icon-btn" id="open-settings" aria-label="Settings" title="Settings">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+<div class="fields" id="fields"></div>
+<main id="main"><div class="notice">Loading…</div></main>
+
+<div class="actions" id="actions">
+  <button class="act read" id="act-read">Read</button>
+  <button class="act keep" id="act-keep">Keep</button>
+  <button class="act reject" id="act-reject">Reject</button>
+  <button class="act skip" id="act-skip" aria-label="Skip">Skip</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<section class="sheet" id="sheet-read" aria-label="Read">
+  <h3>Read</h3>
+  <div class="label">Reading tag</div>
+  <div class="tagchips" id="read-tags"></div>
+  <div class="label">Put it in</div>
+  <input class="search" id="read-search" type="search" placeholder="Filter collections" autocomplete="off">
+  <div class="colls" id="read-colls"></div>
+  <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="read-ok">Read</button></div>
+</section>
+
+<section class="sheet" id="sheet-keep" aria-label="Keep">
+  <h3>Keep</h3>
+  <input class="search" id="keep-search" type="search" placeholder="Filter collections" autocomplete="off">
+  <div class="colls" id="keep-colls"></div>
+  <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="keep-ok">Keep</button></div>
+</section>
+
+<section class="sheet" id="sheet-settings" aria-label="Settings">
+  <h3>Settings</h3>
+  <label class="field">Zotero API key
+    <input id="set-key" type="password" autocomplete="off" spellcheck="false">
+  </label>
+  <p class="hint">Make one at zotero.org → Settings → Security → Create new private key, with “Allow library access”
+    and “Allow write access”. It is kept in this browser only and sent only to api.zotero.org.</p>
+  <p class="hint" id="set-status"></p>
+  <div class="sheet-buttons"><button data-close>Close</button><button class="primary" id="set-save">Save</button></div>
+</section>
+
+<div class="toast" id="toast" role="status"><span id="toast-text"></span><button id="toast-undo">Undo</button></div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- settings
+
+const WATCH_COLLECTION = "Bevakning";
+const WATCH_TAG = "bevakning";
+const NOTE_TAG = "claude-bevakning";
+const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
+// this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
+const store = {
+  get(name) { try { return localStorage.getItem("watch-review." + name) || ""; } catch (e) { return ""; } },
+  set(name, value) {
+    try { value ? localStorage.setItem("watch-review." + name, value) : localStorage.removeItem("watch-review." + name); } catch (e) {}
+  }
+};
+// a test server instead of Zotero: ?api=http://localhost:8765 (remembered); ?api= forgets it
+const API = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.has("api")) store.set("api", q.get("api"));
+  return store.get("api") || "https://api.zotero.org";
+})();
+
+const state = {
+  key: store.get("key"), userID: store.get("userID"),
+  collections: [],      // all live collections
+  watch: [],            // [{key, top, topName, label}] – the Bevakning collections
+  queue: [],            // items to go through, oldest first
+  field: store.get("field") || "all",
+  index: 0, notes: new Map(), busy: false, lastUndo: null,
+};
+
+// ---------------------------------------------------------------- Zotero web API
+
+async function api(method, path, body, version) {
+  const headers = { "Zotero-API-Version": "3", "Zotero-API-Key": state.key };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (version !== undefined) headers["If-Unmodified-Since-Version"] = String(version);
+  let res;
+  try {
+    res = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" });
+  } catch (e) {
+    throw new Error("Zotero can't be reached – check the connection.");
+  }
+  if (res.status === 403) throw new Error("Zotero refused the key (it needs library and write access) – check Settings.");
+  if (res.status === 429 || res.status === 503) {
+    const wait = Number(res.headers.get("Retry-After") || 5);
+    await new Promise(r => setTimeout(r, wait * 1000));
+    return api(method, path, body, version);
+  }
+  if (res.status === 412) { const e = new Error("changed elsewhere"); e.status = 412; throw e; }
+  if (!res.ok) throw new Error(`Zotero answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res;
+}
+
+// every page of a list
+async function getAll(path) {
+  const out = [];
+  for (let start = 0; ; start += 100) {
+    const sep = path.includes("?") ? "&" : "?";
+    const res = await api("GET", `${path}${sep}limit=100&start=${start}`);
+    const page = await res.json();
+    out.push(...page);
+    const total = Number(res.headers.get("Total-Results") || 0);
+    if (!page.length || out.length >= total) return out;
+  }
+}
+
+const userPath = p => `/users/${state.userID}${p}`;
+
+async function checkKey(key) {
+  state.key = key;
+  const res = await api("GET", `/keys/${encodeURIComponent(key)}`);
+  const info = await res.json();
+  const lib = info.access && info.access.user;
+  if (!lib || !lib.library) throw new Error("This key has no access to your library.");
+  if (!lib.write) throw new Error("This key can read but not write – give it write access.");
+  return String(info.userID);
+}
+
+// change an item: build(data) → the fields to send ({tags, collections, deleted}). If the item changed elsewhere
+// since it was loaded (a sync from the desktop), the change is made again on the item as it is now.
+async function patchItem(item, build) {
+  let fields = build(item.data);
+  try {
+    const res = await api("PATCH", userPath(`/items/${item.key}`), fields, item.version);
+    item.version = Number(res.headers.get("Last-Modified-Version")) || item.version;
+  } catch (e) {
+    if (e.status !== 412) throw e;
+    const fresh = await (await api("GET", userPath(`/items/${item.key}`))).json();
+    Object.assign(item, { version: fresh.version, data: fresh.data });
+    fields = build(item.data);
+    const res = await api("PATCH", userPath(`/items/${item.key}`), fields, item.version);
+    item.version = Number(res.headers.get("Last-Modified-Version")) || item.version;
+  }
+  Object.assign(item.data, fields);
+  if (fields.deleted === 0) delete item.data.deleted;
+}
+
+// ---------------------------------------------------------------- loading
+
+async function load() {
+  if (!state.key || !state.userID) { openSettings(true); render(); return; }
+  const showing = current() && current().key; // back from a link: stay on the same item
+  setMain(`<div class="notice">Loading…</div>`);
+  try {
+    const colls = await getAll(userPath("/collections"));
+    state.collections = colls.map(c => c.data).filter(c => !c.deleted);
+    const byKey = new Map(state.collections.map(c => [c.key, c]));
+    state.watch = state.collections.filter(c => c.name === WATCH_COLLECTION && c.parentCollection).map(c => {
+      const top = byKey.get(c.parentCollection);
+      return { key: c.key, top: c.parentCollection, topName: top ? top.name : "?", label: (top ? top.name : "?").split(/\s+/)[0] };
+    });
+    const lists = await Promise.all(state.watch.map(w =>
+      getAll(userPath(`/collections/${w.key}/items/top?tag=${encodeURIComponent(WATCH_TAG)}&sort=dateAdded&direction=asc`))
+        .then(items => items.filter(i => !i.data.deleted).map(i => ({ key: i.key, version: i.version, data: i.data, watch: w })))));
+    state.queue = lists.flat().sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
+    state.index = Math.max(0, visible().findIndex(i => i.key === showing));
+    render();
+  } catch (e) {
+    setMain(`<div class="notice error">${esc(e.message)}</div>`);
+    renderFields(); setActions(false);
+  }
+}
+
+function visible() {
+  return state.field === "all" ? state.queue : state.queue.filter(i => i.watch.label === state.field);
+}
+
+async function whyNote(item) {
+  if (state.notes.has(item.key)) return state.notes.get(item.key);
+  const kids = await (await api("GET", userPath(`/items/${item.key}/children`))).json();
+  const note = kids.map(k => k.data).find(d => d.itemType === "note" && (d.tags || []).some(t => t.tag === NOTE_TAG));
+  const html = note ? note.note : "";
+  state.notes.set(item.key, html);
+  return html;
+}
+
+// ---------------------------------------------------------------- rendering
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+function setMain(html) { document.getElementById("main").innerHTML = html; }
+function setActions(on) { for (const b of document.querySelectorAll(".act")) b.disabled = !on || state.busy; }
+
+// the note is Partitur's own HTML: only its paragraphs' text is shown
+function noteHTML(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return [...doc.querySelectorAll("p")].map(p => `<p>${esc(p.textContent)}</p>`).join("");
+}
+
+function renderFields() {
+  const counts = {};
+  for (const i of state.queue) counts[i.watch.label] = (counts[i.watch.label] || 0) + 1;
+  const labels = [...new Set(state.watch.map(w => w.label))].sort();
+  const chip = (id, text) => `<button class="chip" data-field="${esc(id)}" aria-pressed="${state.field === id}">${esc(text)}</button>`;
+  document.getElementById("fields").innerHTML = state.watch.length > 1 || state.field !== "all"
+    ? chip("all", `All ${state.queue.length}`) + labels.map(l => chip(l, `${l} ${counts[l] || 0}`)).join("")
+    : "";
+}
+
+function authors(d) {
+  const names = (d.creators || []).map(c => c.lastName || c.name || "").filter(Boolean);
+  return names.length > 3 ? `${names.slice(0, 3).join(", ")} et al.` : names.join(", ");
+}
+
+function render() {
+  renderFields();
+  const list = visible();
+  if (!state.key) { setMain(`<div class="notice">Add your Zotero API key in Settings.</div>`); setActions(false); return; }
+  if (!state.watch.length) { setMain(`<div class="empty">No “${WATCH_COLLECTION}” collection found in your library.</div>`); setActions(false); return; }
+  if (!list.length) { setMain(`<div class="empty">Nothing left to go through. 🎉</div>`); setActions(false); return; }
+  if (state.index >= list.length) state.index = 0;
+  const item = list[state.index], d = item.data;
+  const type = { journalArticle: "Article", preprint: "Preprint", book: "Book", bookSection: "Chapter" }[d.itemType] || d.itemType;
+  const source = [d.publicationTitle || d.repository || d.publisher || d.bookTitle, (d.date || "").slice(0, 10)].filter(Boolean).join(" · ");
+  const doi = d.DOI ? `https://doi.org/${encodeURIComponent(d.DOI).replace(/%2F/g, "/")}` : "";
+  const link = d.url && d.url !== doi ? d.url : "";
+  setMain(`
+    <article class="card">
+      <div class="meta-top"><span class="badge">${esc(item.watch.label)}</span><span>${esc(type)}</span></div>
+      <h2>${esc(d.title)}</h2>
+      ${authors(d) ? `<p class="authors">${esc(authors(d))}</p>` : ""}
+      ${source ? `<p class="source">${esc(source)}</p>` : ""}
+      <div class="why" id="why" hidden></div>
+      ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
+        <button class="linkish" id="more" hidden>Show all</button>` : `<p class="hint">No abstract.</p>`}
+      <div class="links">
+        ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">DOI</a>` : ""}
+        ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Web page</a>` : ""}
+        <a href="https://www.google.com/search?q=${encodeURIComponent(d.title || "")}" target="_blank" rel="noopener">Search</a>
+      </div>
+    </article>
+    <p class="progress">${state.index + 1} of ${list.length}</p>`);
+  const abs = document.getElementById("abstract"), more = document.getElementById("more");
+  if (abs && more) {
+    requestAnimationFrame(() => { if (abs.scrollHeight > abs.clientHeight + 4) more.hidden = false; });
+    more.onclick = () => { abs.classList.remove("clamped"); more.hidden = true; };
+  }
+  setActions(true);
+  whyNote(item).then(html => {
+    const box = document.getElementById("why");
+    if (!box || visible()[state.index] !== item || !html) return;
+    box.innerHTML = noteHTML(html);
+    box.hidden = false;
+  }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- collection picker
+
+// the collections an item can go to: its field's top collection (Claude sorts it from there) and everything under it
+function choicesFor(item) {
+  const children = new Map();
+  for (const c of state.collections) {
+    if (!c.parentCollection) continue;
+    if (!children.has(c.parentCollection)) children.set(c.parentCollection, []);
+    children.get(c.parentCollection).push(c);
+  }
+  const out = [];
+  const walk = (key, path) => {
+    for (const c of (children.get(key) || []).sort((a, b) => a.name.localeCompare(b.name, "sv"))) {
+      if (c.key === item.watch.key) continue;
+      out.push({ key: c.key, name: c.name, path });
+      walk(c.key, path ? `${path} / ${c.name}` : c.name);
+    }
+  };
+  walk(item.watch.top, "");
+  return [{ key: item.watch.top, name: item.watch.topName, path: "", hint: "Partitur’s Claude sorts it into a subcollection" }, ...out];
+}
+
+function picker(listEl, searchEl, item, current) {
+  const choices = choicesFor(item);
+  let chosen = current && choices.some(c => c.key === current) ? current : choices[0].key;
+  const draw = () => {
+    const q = searchEl.value.trim().toLowerCase();
+    listEl.innerHTML = choices
+      .filter(c => !q || `${c.path} ${c.name}`.toLowerCase().includes(q))
+      .map(c => `<button class="coll" data-key="${c.key}" aria-pressed="${c.key === chosen}">${esc(c.name)}
+        ${c.hint || c.path ? `<small>${esc(c.hint || c.path)}</small>` : ""}</button>`).join("")
+      || `<div class="notice">No collection matches.</div>`;
+  };
+  listEl.onclick = e => { const b = e.target.closest(".coll"); if (b) { chosen = b.dataset.key; draw(); } };
+  searchEl.value = "";
+  searchEl.oninput = draw;
+  draw();
+  return () => chosen;
+}
+
+// ---------------------------------------------------------------- actions
+
+let readChosen = null, keepChosen = null;
+
+function openSheet(id) {
+  document.getElementById("scrim").classList.add("open");
+  document.getElementById(id).classList.add("open");
+}
+function closeSheets() {
+  document.getElementById("scrim").classList.remove("open");
+  for (const s of document.querySelectorAll(".sheet")) s.classList.remove("open");
+}
+
+function current() { return visible()[state.index]; }
+
+function openRead() {
+  const item = current(); if (!item) return;
+  let tag = store.get("readTag") || READING_TAGS[0];
+  const tags = document.getElementById("read-tags");
+  const draw = () => tags.innerHTML = READING_TAGS.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === tag}">${t}</button>`).join("");
+  tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) { tag = b.dataset.tag; draw(); } };
+  draw();
+  const chosen = picker(document.getElementById("read-colls"), document.getElementById("read-search"), item, null);
+  readChosen = () => ({ tag, collection: chosen() });
+  openSheet("sheet-read");
+}
+
+function openKeep() {
+  const item = current(); if (!item) return;
+  const chosen = picker(document.getElementById("keep-colls"), document.getElementById("keep-search"), item, null);
+  keepChosen = () => ({ collection: chosen() });
+  openSheet("sheet-keep");
+}
+
+// out of Bevakning into the chosen collection, the tag bevakning off (gone through), maybe a reading tag on
+function moveFields(data, collection, readTag) {
+  const watchKeys = new Set(state.watch.map(w => w.key));
+  const collections = [...new Set([...(data.collections || []).filter(k => !watchKeys.has(k)), collection])];
+  const tags = (data.tags || []).filter(t => t.tag !== WATCH_TAG && t.tag !== readTag);
+  if (readTag) tags.push({ tag: readTag });
+  return { collections, tags };
+}
+
+async function act(kind) {
+  const item = current(); if (!item || state.busy) return;
+  const before = { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
+  let build, message;
+  if (kind === "read") {
+    const { tag, collection } = readChosen();
+    store.set("readTag", tag);
+    build = data => moveFields(data, collection, tag);
+    message = `Tagged ${tag}`;
+  } else if (kind === "keep") {
+    const { collection } = keepChosen();
+    build = data => moveFields(data, collection, null);
+    const c = state.collections.find(c => c.key === collection);
+    message = `Kept in ${c ? c.name : "the collection"}`;
+  } else {
+    build = () => ({ deleted: 1 });
+    message = "Moved to the trash";
+  }
+  closeSheets();
+  state.busy = true; setActions(false);
+  try {
+    await patchItem(item, build);
+    state.queue.splice(state.queue.indexOf(item), 1); // the next one moves up to the same place
+    state.lastUndo = { item, before };
+    toast(message, true);
+  } catch (e) {
+    toast(e.message, false);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function undo() {
+  const u = state.lastUndo; if (!u || state.busy) return;
+  state.lastUndo = null; hideToast();
+  state.busy = true; setActions(false);
+  try {
+    await patchItem(u.item, () => ({ collections: u.before.collections, tags: u.before.tags, deleted: 0 }));
+    state.queue.push(u.item);
+    state.queue.sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
+    state.index = Math.max(0, visible().indexOf(u.item));
+    toast("Undone", false);
+  } catch (e) {
+    toast(e.message, false);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+let toastTimer;
+function toast(text, canUndo) {
+  document.getElementById("toast-text").textContent = text;
+  document.getElementById("toast-undo").hidden = !canUndo;
+  document.getElementById("toast").classList.add("open");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, canUndo ? 6000 : 3000);
+}
+function hideToast() { document.getElementById("toast").classList.remove("open"); }
+
+// ---------------------------------------------------------------- settings sheet
+
+function openSettings(first) {
+  document.getElementById("set-key").value = state.key;
+  document.getElementById("set-status").textContent = first ? "Add your Zotero API key to start." : "";
+  openSheet("sheet-settings");
+}
+
+async function saveSettings() {
+  const key = document.getElementById("set-key").value.trim();
+  const status = document.getElementById("set-status");
+  if (!key) { status.textContent = "Paste the key first."; return; }
+  status.textContent = "Checking…";
+  try {
+    const userID = await checkKey(key);
+    state.key = key; state.userID = userID;
+    store.set("key", key); store.set("userID", userID);
+    status.textContent = "The key works.";
+    closeSheets();
+    load();
+  } catch (e) {
+    state.key = store.get("key");
+    status.textContent = e.message;
+  }
+}
+
+// ---------------------------------------------------------------- wiring
+
+document.getElementById("act-read").onclick = openRead;
+document.getElementById("act-keep").onclick = openKeep;
+document.getElementById("act-reject").onclick = () => act("reject");
+document.getElementById("act-skip").onclick = () => { const n = visible().length; if (n) { state.index = (state.index + 1) % n; render(); window.scrollTo(0, 0); } };
+document.getElementById("read-ok").onclick = () => act("read");
+document.getElementById("keep-ok").onclick = () => act("keep");
+document.getElementById("refresh").onclick = () => { state.notes.clear(); load(); };
+document.getElementById("open-settings").onclick = () => openSettings(false);
+document.getElementById("set-save").onclick = saveSettings;
+document.getElementById("toast-undo").onclick = undo;
+document.getElementById("scrim").onclick = closeSheets;
+for (const b of document.querySelectorAll("[data-close]")) b.onclick = closeSheets;
+document.getElementById("fields").onclick = e => {
+  const b = e.target.closest("[data-field]"); if (!b) return;
+  state.field = b.dataset.field; store.set("field", state.field === "all" ? "" : state.field);
+  state.index = 0; render();
+};
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.key && !state.busy && !document.querySelector(".sheet.open")) load(); });
+
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+load();
+</script>
+</body>
+</html>
