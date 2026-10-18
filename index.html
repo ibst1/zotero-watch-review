@@ -2,9 +2,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
      Zotero Watch Review – Copyright (C) 2026 Sebastian Ibstedt
      Go through a Zotero collection one item at a time, on the phone: read (a reading tag), keep, reject (to the
-     trash) – straight through Zotero's web API with your own key, which stays in this browser. Which collection,
-     which tags and where kept items go are settings; the preset "Partitur" is for Partitur's literature watch
-     ("<top> / Bevakning"), whose notes, relevance and projects are shown when they are there. -->
+     trash) – straight through Zotero's web API with your own key, which stays in this browser. New items come from the
+     app's own sources (searches and feeds) or from any other tool; notes such a tool writes about an item – why it
+     was picked, how relevant it is, which project – are shown when they are there. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -128,12 +128,6 @@
   .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
   .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .sheet.scroll { overflow-y: auto; }
-  .summary { background: var(--chip); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
-  .summary ul { margin: 6px 0 8px; padding-left: 18px; }
-  .summary li { margin: 3px 0; }
-  .summary code { font-size: 13px; }
-  .summary button { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 12px; cursor: pointer;
-    font-weight: 600; }
   .field { display: block; margin: 10px 0; }
   .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
     background: var(--bg); color: var(--text); font: inherit; margin-top: 4px; }
@@ -209,41 +203,15 @@
   </label>
   <p class="hint">Make one at zotero.org → Settings → Security → Create new private key, with “Allow library access”
     and “Allow write access”. It is kept in this browser only and sent only to api.zotero.org.</p>
-  <label class="field">Setup
-    <select id="set-preset"></select>
+  <label class="field">Collection to go through
+    <input id="set-queue" autocomplete="off" spellcheck="false" placeholder="To review">
   </label>
-  <div id="set-summary" class="summary"></div>
-  <div id="set-custom">
-    <label class="field">Collection to go through
-      <input id="set-queue" autocomplete="off" spellcheck="false">
-    </label>
-    <p class="hint">Every collection with this name (at any level) is a queue; under a parent collection, the parent’s
-      first word labels it (F, M, T …).</p>
-    <label class="field">Queue tag <span class="hint">(optional)</span>
-      <input id="set-queue-tag" autocomplete="off" spellcheck="false">
-    </label>
-    <p class="hint">Only items with this tag are shown, and reading or keeping one removes it. Empty: every item in the
-      collection.</p>
-    <label class="field">Reading tags <span class="hint">(comma between)</span>
-      <input id="set-reading" autocomplete="off" spellcheck="false">
-    </label>
-    <label class="field">Read and Keep move the item
-      <select id="set-keep"><option value="parent">out of the collection, into its parent collection</option>
-        <option value="out">out of the collection (no other move)</option></select>
-    </label>
-    <label class="field">Tag on what you read or keep <span class="hint">(optional)</span>
-      <input id="set-done" autocomplete="off" spellcheck="false">
-    </label>
-    <label class="field">Reasons to reject <span class="hint">(one per line: Label = tag)</span>
-      <textarea id="set-reasons" rows="5" spellcheck="false"></textarea>
-    </label>
-    <label class="field">Before the reason’s tag
-      <input id="set-reject-prefix" autocomplete="off" spellcheck="false">
-    </label>
-    <label class="field">Tag on your notes
-      <input id="set-note-tag" autocomplete="off" spellcheck="false">
-    </label>
-  </div>
+  <p class="hint">Every collection with this name is a queue – under a parent collection, the parent’s first word labels
+    it (F, M, T …), and you can filter by it. Read and Keep move an item into the parent collection (or just out, at the
+    top) and tag it “from: &lt;collection&gt;”; Reject puts it in the trash, tagged “rejected: &lt;reason&gt;”.</p>
+  <label class="field">Reading tags <span class="hint">(comma between)</span>
+    <input id="set-reading" autocomplete="off" spellcheck="false" placeholder="to-read">
+  </label>
   <h4>Sources</h4>
   <p class="hint">Searches and feeds whose new items are put in the collection when the app opens (every
     6 hours) – nothing already in your library or its trash. They are kept in a Zotero note, so all your
@@ -280,21 +248,12 @@ const PROJECT_TAG = "projekt: ";             // "projekt: F – 2610. Artikel - 
 const PROJECT_LIST_TAG = "partitur-projekt"; // Partitur's note listing the active projects
 const OPENALEX = "https://api.openalex.org"; // where a free full text is found, by DOI (no key needed)
 
-// the setups: which collection is gone through and which tags say what. "Partitur" matches Partitur's literature
-// watch (its tags are Swedish: Partitur reads them); "Simple" works with any collection.
-const PRESETS = {
-  partitur: { label: "Partitur – literature watch (Bevakning)", queue: "Bevakning", queueTag: "bevakning",
-              readingTags: ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"],
-              keepTo: "parent", doneTag: "från-bevakning", rejectPrefix: "avvisad: ",
-              reasons: [["Off topic", "fel ämne"], ["Too clinical", "för kliniskt"], ["Too technical", "för tekniskt"],
-                        ["Already known", "redan känt"], ["Weak study", "svag studie"], ["No reason", ""]],
-              noteTag: "bevakning-anteckning" },
-  simple: { label: "Simple – any collection (“To review”)", queue: "To review", queueTag: "",
-            readingTags: ["to-read"], keepTo: "out", doneTag: "", rejectPrefix: "rejected: ",
-            reasons: [["Off topic", "off topic"], ["Already known", "already known"], ["Weak study", "weak study"],
-                      ["No reason", ""]],
-            noteTag: "review-note" },
-};
+// what the app writes: English, the same for everyone (a tool that adds items – a watch, a feed reader – can read them)
+const FROM_PREFIX = "from: ";          // on what you read or keep: "from: To review"
+const REJECT_PREFIX = "rejected: ";    // on what you reject: "rejected: off topic" (or just "rejected: ")
+const REASONS = [["Off topic", "off topic"], ["Already known", "already known"], ["Weak study", "weak study"],
+                 ["Too clinical", "too clinical"], ["Too technical", "too technical"], ["No reason", ""]];
+const MY_NOTE_TAG = "review-note";     // your own notes on an item
 // this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
 const store = {
   get(name) { try { return localStorage.getItem("watch-review." + name) || ""; } catch (e) { return ""; } },
@@ -309,14 +268,19 @@ const API = (() => {
   return store.get("api") || "https://api.zotero.org";
 })();
 
-// the setup in use: saved here, else "Partitur" for a browser that was set up before there were setups, else "Simple"
+// the settings: the collection gone through and the reading tags (and a feed proxy). A browser set up before there
+// were settings goes through Partitur's "Bevakning", with its reading tags.
+const PARTITUR_READING = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
 const cfg = (() => {
   let saved = null;
   try { saved = JSON.parse(store.get("config") || "null"); } catch (e) {}
-  const preset = saved && PRESETS[saved.preset] ? saved.preset : saved ? "custom" : store.get("key") ? "partitur" : "simple";
-  return Object.assign({ preset }, PRESETS[preset === "custom" ? "simple" : preset], saved || {});
+  const partitur = saved ? saved.preset === "partitur" : !!store.get("key");
+  const own = saved && saved.preset !== "partitur" && saved.preset !== "simple";
+  return { queue: (own && saved.queue) || (partitur ? "Bevakning" : "To review"),
+           readingTags: (own && saved.readingTags && saved.readingTags.length && saved.readingTags)
+                        || (partitur ? PARTITUR_READING : ["to-read"]),
+           feedProxy: (saved && saved.feedProxy) || "" };
 })();
-const sameTag = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 const state = {
   key: store.get("key"), userID: store.get("userID"),
@@ -594,7 +558,7 @@ async function checkSources(force, say) {
         const items = fresh.slice(i, i + 50).map(({ pmid, ...c }) => Object.assign(c, {
           url: c.url || (c.DOI ? `https://doi.org/${c.DOI}` : pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : ""),
           extra: [pmid ? `PMID: ${pmid}` : "", `Watch Review: ${sourceName(s)}`].filter(Boolean).join("\n"),
-          collections: [queue.key], tags: cfg.queueTag ? [{ tag: cfg.queueTag }] : [],
+          collections: [queue.key], tags: [],
         }));
         const res = await (await api("POST", userPath("/items"), items)).json();
         added += Object.keys(res.successful || {}).length;
@@ -662,11 +626,11 @@ async function load(skipSources) {
     const byKey = new Map(state.collections.map(c => [c.key, c]));
     state.watch = state.collections.filter(c => c.name.trim().toLowerCase() === cfg.queue.trim().toLowerCase()).map(c => {
       const top = c.parentCollection ? byKey.get(c.parentCollection) : null;
-      return { key: c.key, top: top ? top.key : null, topName: top ? top.name : "",
+      return { key: c.key, name: c.name, top: top ? top.key : null, topName: top ? top.name : "",
                label: top ? top.name.split(/\s+/)[0] : c.name };
     });
     const lists = await Promise.all(state.watch.map(w =>
-      getAll(userPath(`/collections/${w.key}/items/top?${cfg.queueTag ? `tag=${encodeURIComponent(cfg.queueTag)}&` : ""}sort=dateAdded&direction=asc`))
+      getAll(userPath(`/collections/${w.key}/items/top?sort=dateAdded&direction=asc`))
         .then(items => items.filter(i => !i.data.deleted).map(i => ({ key: i.key, version: i.version, data: i.data, watch: w })))));
     state.queue = lists.flat();
     await loadNotes(state.queue);
@@ -772,7 +736,7 @@ async function whyNote(item) {
   const note = kids.find(d => tagged(d, NOTE_TAG));
   const html = note ? note.note : "";
   state.notes.set(item.key, html);
-  state.myNotes.set(item.key, kids.filter(d => tagged(d, cfg.noteTag)).map(d => ({ key: d.key, version: d.version, note: d.note })));
+  state.myNotes.set(item.key, kids.filter(d => tagged(d, MY_NOTE_TAG)).map(d => ({ key: d.key, version: d.version, note: d.note })));
   return html;
 }
 
@@ -785,7 +749,7 @@ async function saveNote(text) {
   const html = `<p>${esc(text.trim()).replace(/\n/g, "<br>")}</p>\n<p><em>Anteckning från Watch Review ${today}</em></p>`;
   try {
     const res = await (await api("POST", userPath("/items"), [{ itemType: "note", parentItem: item.key, note: html,
-                                                                tags: [{ tag: cfg.noteTag }] }])).json();
+                                                                tags: [{ tag: MY_NOTE_TAG }] }])).json();
     const made = (res.successful || {})["0"];
     if (!made) throw new Error("Zotero didn't save the note: " + JSON.stringify(res.failed || res).slice(0, 150));
     const mine = { key: made.key, version: made.version, note: html };
@@ -808,7 +772,7 @@ function openNote() {
   const box = document.getElementById("note-text");
   box.value = "";
   document.getElementById("note-hint").textContent =
-    `Saved in Zotero as a note on the item (tag ${cfg.noteTag}). Dictate with the keyboard’s microphone.`;
+    `Saved in Zotero as a note on the item (tag ${MY_NOTE_TAG}). Dictate with the keyboard’s microphone.`;
   openSheet("sheet-note");
   setTimeout(() => box.focus(), 50);
 }
@@ -1002,20 +966,17 @@ async function setProject(label, on) {
 
 // where Read and Keep put the item, in words
 function whereTo(item) {
-  if (cfg.keepTo === "parent" && item && item.watch.top) {
-    return `The item goes to ${item.watch.topName}` + (cfg.preset === "partitur" ? ", where Partitur’s Claude sorts it." : ".");
-  }
-  return `The item leaves ${cfg.queue}.`;
+  return item && item.watch.top ? `The item goes to ${item.watch.topName}.` : `The item leaves ${cfg.queue}.`;
 }
 
-// out of the queue (and into its parent collection, if so set up); the queue tag off (gone through), the tag for
-// what you read or keep on, and maybe a reading tag
+// out of the queue into its parent collection (if it has one); tagged where it came from, and maybe a reading tag
 function moveFields(item, data, readTag) {
   const watchKeys = new Set(state.watch.map(w => w.key));
   const collections = (data.collections || []).filter(k => !watchKeys.has(k));
-  if (cfg.keepTo === "parent" && item.watch.top && !collections.includes(item.watch.top)) collections.push(item.watch.top);
-  const tags = (data.tags || []).filter(t => ![cfg.queueTag, cfg.doneTag, readTag].some(x => sameTag(x, t.tag)));
-  if (cfg.doneTag) tags.push({ tag: cfg.doneTag });
+  if (item.watch.top && !collections.includes(item.watch.top)) collections.push(item.watch.top);
+  const from = FROM_PREFIX + item.watch.name;
+  const tags = (data.tags || []).filter(t => t.tag !== from && t.tag !== readTag);
+  tags.push({ tag: from });
   if (readTag) tags.push({ tag: readTag });
   return { collections, tags };
 }
@@ -1063,9 +1024,9 @@ function swipeable(card) {
 function openReject() {
   if (!current()) return;
   const box = document.getElementById("reject-reasons");
-  document.getElementById("reject-hint").textContent = "The reason is saved as a tag (" + cfg.rejectPrefix + "…)"
-    + (cfg.preset === "partitur" ? " and teaches Partitur’s watch what to leave out next time" : "") + ". The item goes to Zotero’s trash.";
-  box.innerHTML = cfg.reasons.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
+  document.getElementById("reject-hint").textContent =
+    `The reason is saved as a tag (${REJECT_PREFIX}…) – a tool that fills the collection can learn from it. The item goes to Zotero’s trash.`;
+  box.innerHTML = REASONS.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
   box.onclick = e => { const b = e.target.closest("[data-reason]"); if (b) act("reject", b.dataset.reason); };
   openSheet("sheet-reject");
 }
@@ -1089,14 +1050,14 @@ async function act(kind, arg) {
     message = `Tagged ${arg}`;
   } else if (kind === "keep") {
     build = data => moveFields(item, data, null);
-    message = cfg.keepTo === "parent" && item.watch.top ? `Kept – into ${item.watch.topName}` : `Kept – out of ${cfg.queue}`;
+    message = item.watch.top ? `Kept – into ${item.watch.topName}` : `Kept – out of ${cfg.queue}`;
   } else {
     build = data => {
-      const tags = (data.tags || []).filter(t => !t.tag.startsWith(cfg.rejectPrefix));
-      if (arg) tags.push({ tag: cfg.rejectPrefix + arg });
+      const tags = (data.tags || []).filter(t => !t.tag.startsWith(REJECT_PREFIX));
+      tags.push({ tag: REJECT_PREFIX + arg }); // just "rejected: " without a reason – rejected all the same
       return { tags, deleted: 1 };
     };
-    const why = (cfg.reasons.find(([, tag]) => tag === arg) || [""])[0];
+    const why = (REASONS.find(([, tag]) => tag === arg) || [""])[0];
     message = arg ? `Rejected (${why.toLowerCase()}) – in the trash` : "Rejected – in the trash";
   }
   closeSheets();
@@ -1147,70 +1108,11 @@ function hideToast() { document.getElementById("toast").classList.remove("open")
 
 // ---------------------------------------------------------------- settings sheet
 
-const SETTING_FIELDS = ["set-queue", "set-queue-tag", "set-reading", "set-keep", "set-done", "set-reasons",
-                        "set-reject-prefix", "set-note-tag"];
-
-function showSetup(c) {
-  const v = (id, value) => { document.getElementById(id).value = value; };
-  v("set-queue", c.queue); v("set-queue-tag", c.queueTag); v("set-reading", c.readingTags.join(", "));
-  v("set-keep", c.keepTo); v("set-done", c.doneTag); v("set-reject-prefix", c.rejectPrefix); v("set-note-tag", c.noteTag);
-  v("set-reasons", c.reasons.map(([label, tag]) => tag ? `${label} = ${tag}` : `${label} =`).join("\n"));
-}
-
-// what a setup does, in a few lines
-function describe(c) {
-  const code = t => `<code>${esc(t)}</code>`;
-  const rows = [
-    `Goes through every collection called ${code(c.queue)}` + (c.queueTag ? ` – the items tagged ${code(c.queueTag)}.` : " – all its items."),
-    c.readingTags.length > 1 ? `<b>Read</b> tags it with the reading tag you choose: ${c.readingTags.map(code).join(", ")}.`
-                             : `<b>Read</b> tags it ${code(c.readingTags[0])}.`,
-    `<b>Read</b> and <b>Keep</b> ` + [`take it out of the collection` + (c.keepTo === "parent" ? " into the one above it" : ""),
-      c.queueTag ? `remove ${code(c.queueTag)}` : "", c.doneTag ? `tag it ${code(c.doneTag)}` : ""]
-      .filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") + ".",
-    `<b>Reject</b> moves it to the trash, tagged ${code(c.rejectPrefix + "<reason>")}.`,
-    `Your notes are tagged ${code(c.noteTag)}.`,
-  ];
-  if (c === PRESETS.partitur) {
-    rows.push("Made for Partitur’s literature watch: its tags are Swedish because Partitur reads them – its Claude sorts "
-              + "what you keep and learns from what you reject.");
-  }
-  return `<ul>${rows.map(r => `<li>${r}</li>`).join("")}</ul>`;
-}
-
-function readSetup() {
-  const v = id => document.getElementById(id).value.trim();
-  const reasons = v("set-reasons").split("\n").map(l => l.trim()).filter(Boolean).map(l => {
-    const [label, ...tag] = l.split("=");
-    return [label.trim(), tag.join("=").trim()];
-  });
-  return { preset: document.getElementById("set-preset").value, queue: v("set-queue"), queueTag: v("set-queue-tag"),
-           readingTags: v("set-reading").split(",").map(t => t.trim()).filter(Boolean), keepTo: v("set-keep"),
-           doneTag: v("set-done"), rejectPrefix: document.getElementById("set-reject-prefix").value,
-           reasons: reasons.length ? reasons : [["No reason", ""]], noteTag: v("set-note-tag"), feedProxy: v("set-proxy") };
-}
-
 function openSettings(first) {
   document.getElementById("set-key").value = state.key;
   document.getElementById("set-status").textContent = first ? "Add your Zotero API key to start." : "";
-  const preset = document.getElementById("set-preset");
-  preset.innerHTML = Object.entries(PRESETS).map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`).join("")
-    + `<option value="custom">Your own</option>`;
-  preset.value = cfg.preset;
-  // a ready setup is shown as what it does; "Your own" as the fields (starting from the setup chosen before)
-  const show = () => {
-    const own = preset.value === "custom";
-    document.getElementById("set-custom").hidden = !own;
-    const summary = document.getElementById("set-summary");
-    summary.hidden = own;
-    if (own) return;
-    summary.innerHTML = describe(PRESETS[preset.value])
-      + `<button id="set-adjust">Adjust this setup…</button>`;
-    document.getElementById("set-adjust").onclick = () => { preset.value = "custom"; show(); };
-  };
-  preset.onchange = () => { if (PRESETS[preset.value]) showSetup(PRESETS[preset.value]); show(); };
-  for (const id of SETTING_FIELDS) document.getElementById(id).oninput = () => { preset.value = "custom"; };
-  showSetup(cfg);
-  show();
+  document.getElementById("set-queue").value = cfg.queue;
+  document.getElementById("set-reading").value = cfg.readingTags.join(", ");
   document.getElementById("set-proxy").value = cfg.feedProxy || "";
   openSheet("sheet-settings");
   showSources();
@@ -1281,17 +1183,15 @@ async function saveSettings() {
   const key = document.getElementById("set-key").value.trim();
   const status = document.getElementById("set-status");
   if (!key) { status.textContent = "Paste the key first."; return; }
-  const setup = readSetup();
-  if (!setup.queue) { status.textContent = "Name the collection to go through."; return; }
-  if (!setup.readingTags.length) { status.textContent = "Give at least one reading tag."; return; }
-  if (!setup.noteTag) { status.textContent = "Give a tag for your notes."; return; }
+  const v = id => document.getElementById(id).value.trim();
+  const setup = { queue: v("set-queue") || "To review", readingTags: v("set-reading").split(",").map(t => t.trim()).filter(Boolean),
+                  feedProxy: v("set-proxy") };
+  if (!setup.readingTags.length) setup.readingTags = ["to-read"];
   status.textContent = "Checking…";
   try {
     const userID = key === state.key && state.userID ? state.userID : await checkKey(key);
     state.key = key; state.userID = userID;
     store.set("key", key); store.set("userID", userID);
-    if (PRESETS[setup.preset]) Object.assign(setup, PRESETS[setup.preset], { preset: setup.preset, feedProxy: setup.feedProxy });
-    delete setup.label;
     Object.assign(cfg, setup);
     store.set("config", JSON.stringify(setup));
     document.getElementById("title").textContent = cfg.queue;

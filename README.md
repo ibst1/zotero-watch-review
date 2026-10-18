@@ -42,38 +42,32 @@ And you choose:
 - **‹ / ›** – back to the one before, on to the next one (they stay).
 - **Swipe** the card right to keep it, left to reject it.
 
-Read and Keep take the item out of the collection – and, if so set up, into its parent collection. Every change can
-be undone: *Undo* in the message right after, or the undo arrow at the top, as many steps back as you like (this
-session).
+Read and Keep take the item out of the collection – into its parent collection, if it has one – and tag it with where
+it came from (`from: To review`); Reject puts it in Zotero's trash, tagged `rejected: <reason>`. These tags are the same
+for everyone, so a tool that fills the collection can learn from them. Every change can be undone: *Undo* in the
+message right after, or the undo arrow at the top, as many steps back as you like (this session).
 
 ## Settings (⚙)
 
 - **Zotero API key** – zotero.org → Settings → Security → *Create new private key*, with **Allow library access**
   and **Allow write access**. Kept in this browser only and sent only to `api.zotero.org` (OpenAlex gets only DOIs;
   the sources get only your searches).
-- **Setup** – *Simple* (the collection *To review*, no tags needed) or *Partitur* (below), or your own:
-  - the collection to go through – every collection with that name is a queue; under a parent collection, the
-    parent's first word labels it, and you can filter by it (e.g. *F – Research / To review*, *T – Theology / To
-    review*);
-  - a queue tag (optional) – then only items with it are shown, and reading or keeping one removes it;
-  - the reading tags; where Read and Keep move the item (its parent collection, or just out of the collection);
-  - a tag for what you read or keep (optional), the reasons to reject (*Label = tag*) and their tag prefix, and the
-    tag on your notes.
+- **Collection to go through** – *To review* unless you name another. Every collection with that name is a queue;
+  under a parent collection, the parent's first word labels it and you can filter by it (e.g. *F – Research / To
+  review* and *T – Theology / To review*).
+- **Reading tags** – the tags Read offers (`to-read` unless you name others).
+- **Sources** and a **feed proxy** – above.
 
-## With Partitur
+## With other tools
 
-The preset *Partitur* is for the author's own sync setup, Partitur, whose literature watch puts new articles in
-`<field> / Bevakning`, tagged `bevakning`, with a note from Claude on why. Its tags are Swedish, because Partitur reads
-them: reading or keeping adds `från-bevakning` and moves the item to the field's top collection (where Partitur's
-Claude sorts it into a subcollection); a rejection adds `avvisad: <reason>`, which the watch learns from. When
-Partitur's notes are there – whatever the setup – the app also shows:
-
-- Claude's note on why the item was picked, and its relevance (*high* before *medium*: the items come most relevant
-  first);
-- **＋ Project** – put the item in one of the active projects (from Partitur's note tagged `partitur-projekt`); the
-  tag `projekt: <vault> – <project>` makes Partitur add it to the project's literature list.
-
-Partitur also keeps a Todoist task *Bevakning: N att gå igenom*, linked here, while there is something to go through.
+Anything can put items in the collection – the app only goes through what is there. A tool that does (a literature
+watch, an alert service) can also write a child note on an item, tagged `claude-bevakning`, saying why it was picked
+("Relevans: hög/medel" orders the queue, most relevant first), and keep a list of projects in a note tagged
+`partitur-projekt`: then the app shows the reason and the relevance, and **＋ Project** puts an item in a project
+with the tag `projekt: <project>`. The author's own setup, Partitur, does this with Claude: it screens new literature
+into `<field> / Bevakning`, learns from what you read, keep and reject, adds what you put in a project to that
+project's literature list, and keeps a Todoist task *Bevakning: N att gå igenom*, linked here, while there is something
+to go through.
 
 ## How it works
 
