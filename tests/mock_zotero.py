@@ -47,6 +47,12 @@ items = {i["key"]: i for i in [
             "Zygon", "2026-10-09", "WATT", "On fine-tuning and explanation."),
     article("IT05", "Finding Ourselves After Darwin", ["Rosenberg"], "", "2026-10-13", "WATT", kind="book"),
 ]}
+library = {i["key"]: i for i in [
+    dict(article("LIB1", "Clonal evolution of Wilms tumour", ["Gong", "Andersson"], "Nature", "2024-01-01", "TOPF"),
+         tags=[]),
+    dict(article("LIB2", "Methylation-defined tumour subtypes in paediatric renal cancer", ["Oberhammer"],
+                 "bioRxiv", "2025-06-01", "TOPF", kind="preprint"), tags=[]),
+]}
 for i in items.values():
     if i["itemType"] == "book":
         i.pop("publicationTitle")
@@ -114,6 +120,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.page([wrap(i) for i in sorted(rows, key=lambda i: i["dateAdded"])], q)
             if len(rest) == 3 and rest[0] == "items" and rest[2] == "children":
                 return self.send(200, [wrap(notes[rest[1]])] if rest[1] in notes else [])
+            if rest == ["items", "top"] and "q" in q:
+                words = q["q"][0].lower().split()
+                rows = [i for i in list(items.values()) + list(library.values())
+                        if all(w in (i["title"] + " " + " ".join(c["lastName"] for c in i["creators"])).lower()
+                               for w in words)]
+                return self.page([wrap(i) for i in rows], q)
             if rest == ["items"] and q.get("tag", [""])[0] == "partitur-projekt":
                 return self.send(200, [wrap(project_list)])
             if len(rest) == 2 and rest[0] == "items":

@@ -13,6 +13,8 @@ The items come most relevant first (Claude's *hög* before *medel*), then oldest
 - **Reject** – with a reason (off topic, too clinical, too technical, already known, weak study – or none), saved as
   the tag `avvisad: <reason>`; to Zotero's trash (recoverable there). Partitur's watch learns from your decisions:
   what you read, keep and reject – and why – is shown to Claude when it screens the next ones.
+- **Already in your library** / **related** – the same work (by title) or works by the same first authors that
+  you already have, from Zotero's quick search.
 - **Open PDF** – shown when OpenAlex knows a free full text for the DOI.
 - **›** / **‹** – on to the next one or back to the one before (they stay).
 - **＋ Project** – put it in one of your active projects (more than one is fine; × takes it out again). It stays in

@@ -97,6 +97,11 @@
   .pbtn { text-align: left; border: 1px solid var(--line); background: var(--chip); border-radius: 12px; padding: 13px 14px;
     font-size: 16px; cursor: pointer; }
   .pbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .related { font-size: 14px; margin: 10px 0 0; }
+  .related ul { margin: 6px 0 0; padding-left: 18px; }
+  .related li { margin: 3px 0; }
+  .related summary { cursor: pointer; color: var(--accent); }
+  .related .dup { margin: 0; font-weight: 700; color: var(--reject); }
   .projects { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0 4px; }
   .ptag { background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 12px; font-size: 14px;
     display: inline-flex; align-items: center; gap: 4px; }
@@ -213,7 +218,7 @@ const state = {
   watch: [],            // [{key, top, topName, label}] – the Bevakning collections
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
-  index: 0, notes: new Map(), busy: false, openAccess: new Map(),
+  index: 0, notes: new Map(), busy: false, openAccess: new Map(), related: new Map(),
   history: [],          // [{label, item, revert}] – every change this session, the newest last (Undo takes them back)
   projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
 };
@@ -372,6 +377,31 @@ async function openAccess(item) {
   return found;
 }
 
+// what the library already has: the same work (by title), or works by the same first authors
+const normTitle = t => (t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+async function related(item) {
+  if (state.related.has(item.key)) return state.related.get(item.key);
+  const d = item.data;
+  const names = (d.creators || []).map(c => c.lastName || c.name).filter(Boolean).slice(0, 2);
+  const words = normTitle(d.title).split(" ").filter(w => w.length > 3).slice(0, 5).join(" ");
+  const search = q => api("GET", userPath(`/items/top?q=${encodeURIComponent(q)}&qmode=titleCreatorYear&limit=10`))
+    .then(r => r.json()).catch(() => []);
+  const found = (await Promise.all([...names, words].filter(Boolean).map(search))).flat();
+  const seen = new Set([item.key]), out = [];
+  for (const r of found) {
+    const x = r.data;
+    if (seen.has(r.key) || x.deleted || ["note", "attachment", "annotation"].includes(x.itemType)) continue;
+    if ((x.tags || []).some(t => t.tag === WATCH_TAG)) continue; // another Bevakning item
+    seen.add(r.key);
+    out.push({ key: r.key, title: x.title, year: (x.date || "").match(/\d{4}/)?.[0] || "",
+               who: (x.creators || []).map(c => c.lastName || c.name).filter(Boolean).slice(0, 2).join(", "),
+               same: normTitle(x.title) === normTitle(d.title) });
+  }
+  out.sort((a, b) => b.same - a.same);
+  state.related.set(item.key, out);
+  return out;
+}
+
 async function whyNote(item) {
   if (state.notes.has(item.key)) return state.notes.get(item.key);
   const kids = await (await api("GET", userPath(`/items/${item.key}/children`))).json();
@@ -435,6 +465,7 @@ function render() {
       ${authors(d) ? `<p class="authors">${esc(authors(d))}</p>` : ""}
       ${source ? `<p class="source">${esc(source)}</p>` : ""}
       <div class="why" id="why" hidden></div>
+      <div class="related" id="related" hidden></div>
       <div class="projects">${itemProjects(d).map(l => `<span class="ptag">${esc(projectName(l))}<button data-unproject="${esc(l)}" aria-label="Remove from ${esc(projectName(l))}">×</button></span>`).join("")}
         <button class="add-project" id="add-project">＋ Project</button></div>
       ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
@@ -455,6 +486,15 @@ function render() {
   document.getElementById("add-project").onclick = openProjects;
   swipeable(document.getElementById("card"));
   for (const b of document.querySelectorAll("[data-unproject]")) b.onclick = () => setProject(b.dataset.unproject, false);
+  related(item).then(list => {
+    const box = document.getElementById("related");
+    if (!box || current() !== item || !list.length) return;
+    const same = list.filter(r => r.same), rest = list.filter(r => !r.same);
+    const row = r => `<li>${esc(r.title)}${r.who || r.year ? ` <span class="hint">– ${esc([r.who, r.year].filter(Boolean).join(" "))}</span>` : ""}</li>`;
+    box.innerHTML = (same.length ? `<p class="dup">Already in your library</p><ul>${same.map(row).join("")}</ul>` : "")
+      + (rest.length ? `<details><summary>${rest.length} related in your library</summary><ul>${rest.slice(0, 8).map(row).join("")}</ul></details>` : "");
+    box.hidden = false;
+  });
   openAccess(item).then(oa => {
     const links = document.getElementById("links");
     if (!oa || !links || current() !== item) return;
