@@ -53,7 +53,11 @@ for i in items.values():
         i["publisher"] = "Baker Academic"
 notes = {k: {"key": f"N{k}", "itemType": "note", "parentItem": k, "tags": [{"tag": "claude-bevakning"}],
              "note": f"<h1>Bevakning: varför</h1>\n<p>Relevant for the project on {items[k]['title'][:30]}.</p>\n"
-                     "<p><strong>Projekt:</strong> Wilms</p>\n<p><em>Relevans: hög.</em></p>"} for k in items}
+                     "<p><strong>Projekt:</strong> Wilms tumour evolution</p>\n<p><em>Relevans: hög.</em></p>"} for k in items}
+project_list = {"key": "PLST", "version": 5, "itemType": "note", "tags": [{"tag": "partitur-projekt"}],
+                "note": "<h1>Partitur: aktiva projekt</h1>\n<ul>\n<li>F – 2601. Wilms tumour evolution</li>\n"
+                        "<li>F – 2605. Metylering i barntumörer</li>\n<li>T – 2610. Artikel - Försyn, slump och mutation</li>\n"
+                        "<li>M – Riktlinjer sarkom</li>\n</ul>"}
 library_version = [100]
 
 
@@ -110,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.page([wrap(i) for i in sorted(rows, key=lambda i: i["dateAdded"])], q)
             if len(rest) == 3 and rest[0] == "items" and rest[2] == "children":
                 return self.send(200, [wrap(notes[rest[1]])] if rest[1] in notes else [])
+            if rest == ["items"] and q.get("tag", [""])[0] == "partitur-projekt":
+                return self.send(200, [wrap(project_list)])
             if len(rest) == 2 and rest[0] == "items":
                 return self.send(200, wrap(items[rest[1]]))
             return self.send(404, {"error": "unknown"})

@@ -77,7 +77,21 @@
   .sheet.open, .scrim.open { display: flex; }
   .sheet h3 { margin: 0 0 10px; font-size: 17px; }
   .sheet .label { font-size: 13px; color: var(--muted); margin: 10px 0 6px; }
-  .tagchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tagchips { display: grid; gap: 8px; margin-top: 4px; }
+  .tagchips .chip { border-radius: 12px; padding: 14px 16px; font-size: 17px; text-align: left; }
+  .search { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+    color: var(--text); font: inherit; margin-bottom: 8px; }
+  .plist { overflow-y: auto; display: grid; gap: 8px; }
+  .plist .group { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .pbtn { text-align: left; border: 1px solid var(--line); background: var(--chip); border-radius: 12px; padding: 13px 14px;
+    font-size: 16px; cursor: pointer; }
+  .pbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .projects { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0 4px; }
+  .ptag { background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 12px; font-size: 14px;
+    display: inline-flex; align-items: center; gap: 4px; }
+  .ptag button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1; }
+  .add-project { border: 1px dashed var(--line); background: none; border-radius: 999px; padding: 7px 14px; font-size: 14px;
+    cursor: pointer; color: var(--accent); }
   .sheet-buttons { display: flex; gap: 8px; margin-top: 12px; }
   .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
   .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -120,6 +134,14 @@
   <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
 
+<section class="sheet" id="sheet-project" aria-label="Project">
+  <h3>Put in a project</h3>
+  <p class="hint">It goes into the project’s “Litteratur (Claude).md” at Partitur’s next run, marked “föreslagen av dig”.</p>
+  <input class="search" id="project-search" type="search" placeholder="Filter projects" autocomplete="off">
+  <div class="plist" id="project-list"></div>
+  <div class="sheet-buttons"><button data-close>Close</button></div>
+</section>
+
 <section class="sheet" id="sheet-settings" aria-label="Settings">
   <h3>Settings</h3>
   <label class="field">Zotero API key
@@ -141,6 +163,8 @@ const WATCH_COLLECTION = "Bevakning";
 const WATCH_TAG = "bevakning";
 const NOTE_TAG = "claude-bevakning";
 const ORIGIN_TAG = "från-bevakning"; // on what you read or keep: where it came from
+const PROJECT_TAG = "projekt: ";       // "projekt: F – 2610. Artikel - X": Partitur puts the item in that project's list
+const PROJECT_LIST_TAG = "partitur-projekt"; // Partitur's note listing the active projects
 const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
 // this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
 const store = {
@@ -163,6 +187,7 @@ const state = {
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
   index: 0, notes: new Map(), busy: false, lastUndo: null,
+  projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
 };
 
 // ---------------------------------------------------------------- Zotero web API
@@ -250,6 +275,7 @@ async function load() {
       getAll(userPath(`/collections/${w.key}/items/top?tag=${encodeURIComponent(WATCH_TAG)}&sort=dateAdded&direction=asc`))
         .then(items => items.filter(i => !i.data.deleted).map(i => ({ key: i.key, version: i.version, data: i.data, watch: w })))));
     state.queue = lists.flat().sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
+    state.projects = await projectList();
     state.index = Math.max(0, visible().findIndex(i => i.key === showing));
     render();
   } catch (e) {
@@ -261,6 +287,23 @@ async function load() {
 function visible() {
   return state.field === "all" ? state.queue : state.queue.filter(i => i.watch.label === state.field);
 }
+
+// the active projects, from the note Partitur keeps up to date (tag partitur-projekt)
+async function projectList() {
+  const notes = await (await api("GET", userPath(`/items?tag=${encodeURIComponent(PROJECT_LIST_TAG)}&itemType=note&limit=5`))).json();
+  const note = notes.map(n => n.data).find(d => !d.deleted);
+  if (!note) return null;
+  const doc = new DOMParser().parseFromString(note.note, "text/html");
+  return [...doc.querySelectorAll("li")].map(li => li.textContent.trim()).filter(Boolean);
+}
+
+// "2610. Artikel - Avvägda balanser" -> "artikel avvägda balanser" (as Partitur matches them)
+function normProject(name) {
+  return (name || "").replace(/^\d+\.\s*/, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+const projectName = label => label.replace(/^[A-Z]\s*[–-]\s*/, "");
+const projectVault = label => label.slice(0, 1);
+const itemProjects = d => (d.tags || []).map(t => t.tag).filter(t => t.toLowerCase().startsWith(PROJECT_TAG)).map(t => t.slice(PROJECT_TAG.length).trim());
 
 async function whyNote(item) {
   if (state.notes.has(item.key)) return state.notes.get(item.key);
@@ -317,6 +360,8 @@ function render() {
       ${authors(d) ? `<p class="authors">${esc(authors(d))}</p>` : ""}
       ${source ? `<p class="source">${esc(source)}</p>` : ""}
       <div class="why" id="why" hidden></div>
+      <div class="projects">${itemProjects(d).map(l => `<span class="ptag">${esc(projectName(l))}<button data-unproject="${esc(l)}" aria-label="Remove from ${esc(projectName(l))}">×</button></span>`).join("")}
+        <button class="add-project" id="add-project">＋ Project</button></div>
       ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
         <button class="linkish" id="more" hidden>Show all</button>` : `<p class="hint">No abstract.</p>`}
       <div class="links">
@@ -332,6 +377,8 @@ function render() {
     more.onclick = () => { abs.classList.remove("clamped"); more.hidden = true; };
   }
   setActions(true);
+  document.getElementById("add-project").onclick = openProjects;
+  for (const b of document.querySelectorAll("[data-unproject]")) b.onclick = () => setProject(b.dataset.unproject, false);
   whyNote(item).then(html => {
     const box = document.getElementById("why");
     if (!box || visible()[state.index] !== item || !html) return;
@@ -360,6 +407,61 @@ function openRead() {
   tags.innerHTML = READING_TAGS.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
   tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag); };
   openSheet("sheet-read");
+}
+
+// the projects to offer: those Claude named in its note first, then the item's own field, then the rest
+async function openProjects() {
+  const item = current(); if (!item) return;
+  const list = document.getElementById("project-list"), search = document.getElementById("project-search");
+  search.value = "";
+  if (!state.projects) {
+    list.innerHTML = `<p class="hint">Partitur hasn’t written the list of projects yet – it does at its next run (project_literature).</p>`;
+    openSheet("sheet-project");
+    return;
+  }
+  let named = "";
+  try { named = normProject(new DOMParser().parseFromString(await whyNote(item), "text/html").body.textContent); } catch (e) {}
+  const mine = new Set(itemProjects(item.data));
+  const claude = state.projects.filter(l => named && named.includes(normProject(projectName(l))));
+  const field = state.projects.filter(l => !claude.includes(l) && projectVault(l) === item.watch.label);
+  const rest = state.projects.filter(l => !claude.includes(l) && !field.includes(l));
+  const draw = () => {
+    const q = normProject(search.value);
+    const group = (title, labels) => {
+      const shown = labels.filter(l => !q || normProject(l).includes(q));
+      return shown.length ? `<p class="group">${esc(title)}</p>` + shown.map(l =>
+        `<button class="pbtn" data-project="${esc(l)}" aria-pressed="${mine.has(l)}">${esc(projectName(l))}</button>`).join("") : "";
+    };
+    list.innerHTML = group("Claude’s suggestion", claude) + group(`${item.watch.label} projects`, field) + group("Other projects", rest)
+      || `<p class="hint">No project matches.</p>`;
+  };
+  list.onclick = e => { const b = e.target.closest("[data-project]"); if (b) setProject(b.dataset.project, !mine.has(b.dataset.project)); };
+  search.oninput = draw;
+  draw();
+  openSheet("sheet-project");
+}
+
+// the tag "projekt: <label>" on or off; the item stays in Bevakning (read, keep or reject it as before)
+async function setProject(label, on) {
+  const item = current(); if (!item || state.busy) return;
+  const tag = PROJECT_TAG + label;
+  const before = { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
+  closeSheets();
+  state.busy = true; setActions(false);
+  try {
+    await patchItem(item, data => {
+      const tags = (data.tags || []).filter(t => t.tag !== tag);
+      if (on) tags.push({ tag });
+      return { tags };
+    });
+    state.lastUndo = { item, before, stay: true };
+    toast(on ? `In ${projectName(label)}` : `Out of ${projectName(label)}`, true);
+  } catch (e) {
+    toast(e.message, false);
+  } finally {
+    state.busy = false;
+    render();
+  }
 }
 
 // out of Bevakning into the field's top collection (Claude sorts it from there); the tag bevakning off (gone
@@ -410,7 +512,7 @@ async function undo() {
   state.busy = true; setActions(false);
   try {
     await patchItem(u.item, () => ({ collections: u.before.collections, tags: u.before.tags, deleted: 0 }));
-    state.queue.push(u.item);
+    if (!state.queue.includes(u.item)) state.queue.push(u.item);
     state.queue.sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
     state.index = Math.max(0, visible().indexOf(u.item));
     toast("Undone", false);
