@@ -4,7 +4,7 @@ A small web app for the phone: go through the Zotero items that Partitur's
 literature watch has put in **`<top collection> / Bevakning`**, one at a time. Zotero for Android can't edit tags,
 so this does it straight through Zotero's web API.
 
-For each item you see the title, authors, journal, abstract and Claude's note on why it was picked, and choose:
+The items come most relevant first (Claude's *hög* before *medel*), then oldest first. For each item you see the title, authors, journal, abstract and Claude's note on why it was picked, and choose:
 
 - **Read** – one tap on a reading tag (`to-read`, `to-skim`, `to-read-methods`, `to-read-background`,
   `to-review`).

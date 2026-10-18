@@ -53,7 +53,7 @@ for i in items.values():
         i["publisher"] = "Baker Academic"
 notes = {k: {"key": f"N{k}", "itemType": "note", "parentItem": k, "tags": [{"tag": "claude-bevakning"}],
              "note": f"<h1>Bevakning: varför</h1>\n<p>Relevant for the project on {items[k]['title'][:30]}.</p>\n"
-                     "<p><strong>Projekt:</strong> Wilms tumour evolution</p>\n<p><em>Relevans: hög.</em></p>"} for k in items}
+                     f"<p><strong>Projekt:</strong> Wilms tumour evolution</p>\n<p><em>Relevans: {'medel' if k in ('IT04', 'IT01') else 'hög'}.</em></p>"} for k in items}
 project_list = {"key": "PLST", "version": 5, "itemType": "note", "tags": [{"tag": "partitur-projekt"}],
                 "note": "<h1>Partitur: aktiva projekt</h1>\n<ul>\n<li>F – 2601. Wilms tumour evolution</li>\n"
                         "<li>F – 2605. Metylering i barntumörer</li>\n<li>T – 2610. Artikel - Försyn, slump och mutation</li>\n"
