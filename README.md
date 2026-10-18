@@ -10,13 +10,13 @@ For each item you see the title, authors, journal, abstract and Claude's note on
   `to-review`).
 - **Keep** – kept in the library, nothing to read now.
 - **Reject** – to Zotero's trash (recoverable there).
-- **Skip** – the next one; this one stays.
+- **›** / **‹** – on to the next one or back to the one before (they stay).
 - **＋ Project** – put it in one of your active projects (more than one is fine; × takes it out again). It stays in
   Bevakning: read, keep or reject it as before.
 
 Read and Keep take the item out of Bevakning into its field's top collection (e.g. *F – Forskning*), from which
 Partitur's `sort_articles` moves it into the right subcollection; remove the tag `bevakning` (= gone through); and add
-the tag `från-bevakning`, so you can always see where it came from. Every action can be undone right after (*Undo*).
+the tag `från-bevakning`, so you can always see where it came from. Every change can be undone: *Undo* in the message right after, or the undo arrow at the top, as many steps back as you like (this session).
 
 **Projects** come from Partitur: its `project_literature` keeps a Zotero note tagged `partitur-projekt` listing the
 active project folders, and the projects Claude named for the item are offered first. Putting an item in a project
