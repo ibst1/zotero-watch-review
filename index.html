@@ -128,6 +128,12 @@
   .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
   .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .sheet.scroll { overflow-y: auto; }
+  .summary { background: var(--chip); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .summary ul { margin: 6px 0 8px; padding-left: 18px; }
+  .summary li { margin: 3px 0; }
+  .summary code { font-size: 13px; }
+  .summary button { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 12px; cursor: pointer;
+    font-weight: 600; }
   .field { display: block; margin: 10px 0; }
   .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
     background: var(--bg); color: var(--text); font: inherit; margin-top: 4px; }
@@ -206,6 +212,7 @@
   <label class="field">Setup
     <select id="set-preset"></select>
   </label>
+  <div id="set-summary" class="summary"></div>
   <div id="set-custom">
     <label class="field">Collection to go through
       <input id="set-queue" autocomplete="off" spellcheck="false">
@@ -1150,6 +1157,26 @@ function showSetup(c) {
   v("set-reasons", c.reasons.map(([label, tag]) => tag ? `${label} = ${tag}` : `${label} =`).join("\n"));
 }
 
+// what a setup does, in a few lines
+function describe(c) {
+  const code = t => `<code>${esc(t)}</code>`;
+  const rows = [
+    `Goes through every collection called ${code(c.queue)}` + (c.queueTag ? ` – the items tagged ${code(c.queueTag)}.` : " – all its items."),
+    c.readingTags.length > 1 ? `<b>Read</b> tags it with the reading tag you choose: ${c.readingTags.map(code).join(", ")}.`
+                             : `<b>Read</b> tags it ${code(c.readingTags[0])}.`,
+    `<b>Read</b> and <b>Keep</b> ` + [`take it out of the collection` + (c.keepTo === "parent" ? " into the one above it" : ""),
+      c.queueTag ? `remove ${code(c.queueTag)}` : "", c.doneTag ? `tag it ${code(c.doneTag)}` : ""]
+      .filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") + ".",
+    `<b>Reject</b> moves it to the trash, tagged ${code(c.rejectPrefix + "<reason>")}.`,
+    `Your notes are tagged ${code(c.noteTag)}.`,
+  ];
+  if (c === PRESETS.partitur) {
+    rows.push("Made for Partitur’s literature watch: its tags are Swedish because Partitur reads them – its Claude sorts "
+              + "what you keep and learns from what you reject.");
+  }
+  return `<ul>${rows.map(r => `<li>${r}</li>`).join("")}</ul>`;
+}
+
 function readSetup() {
   const v = id => document.getElementById(id).value.trim();
   const reasons = v("set-reasons").split("\n").map(l => l.trim()).filter(Boolean).map(l => {
@@ -1169,9 +1196,21 @@ function openSettings(first) {
   preset.innerHTML = Object.entries(PRESETS).map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`).join("")
     + `<option value="custom">Your own</option>`;
   preset.value = cfg.preset;
-  preset.onchange = () => { if (PRESETS[preset.value]) showSetup(PRESETS[preset.value]); };
+  // a ready setup is shown as what it does; "Your own" as the fields (starting from the setup chosen before)
+  const show = () => {
+    const own = preset.value === "custom";
+    document.getElementById("set-custom").hidden = !own;
+    const summary = document.getElementById("set-summary");
+    summary.hidden = own;
+    if (own) return;
+    summary.innerHTML = describe(PRESETS[preset.value])
+      + `<button id="set-adjust">Adjust this setup…</button>`;
+    document.getElementById("set-adjust").onclick = () => { preset.value = "custom"; show(); };
+  };
+  preset.onchange = () => { if (PRESETS[preset.value]) showSetup(PRESETS[preset.value]); show(); };
   for (const id of SETTING_FIELDS) document.getElementById(id).oninput = () => { preset.value = "custom"; };
   showSetup(cfg);
+  show();
   document.getElementById("set-proxy").value = cfg.feedProxy || "";
   openSheet("sheet-settings");
   showSources();
