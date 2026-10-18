@@ -29,6 +29,9 @@ active project folders, and the projects Claude named for the item are offered f
 sets the tag `projekt: <vault> – <project folder>`; at Partitur's next run the item is added to that project's
 `Litteratur (Claude).md` (with Claude's reason), marked *föreslagen av dig*.
 
+While there is something to go through, Partitur keeps a task *Bevakning: N att gå igenom* in the field's Todoist
+project, with a link here; it is completed when Bevakning is empty.
+
 ## Use
 
 Open the page on the phone, then the browser's menu → *Add to Home screen* (it works as an app). Settings (⚙):
