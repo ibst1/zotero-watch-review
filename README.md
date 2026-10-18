@@ -36,7 +36,8 @@ You see the title, authors, journal, date and abstract, and:
 
 And you choose:
 
-- **Read** – one tap on a reading tag (`to-read` by default; you can have several).
+- **Read** – one tap on a reading tag (`to-read` by default; you can have several). If you want, pick a date first –
+  today, tomorrow, in a week or any day – saved as the tag `due: <date>` (a tool making reading tasks can use it).
 - **Keep** – kept in the library, nothing to read now.
 - **Reject** – with a reason (saved as a tag, e.g. `rejected: off topic`), to Zotero's trash (recoverable there).
 - **‹ / ›** – back to the one before, on to the next one (they stay).

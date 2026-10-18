@@ -100,6 +100,9 @@
   .sheet.open, .scrim.open { display: flex; }
   .sheet h3 { margin: 0 0 10px; font-size: 17px; }
   .sheet .label { font-size: 13px; color: var(--muted); margin: 10px 0 6px; }
+  .dates { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .dates .pick { position: relative; overflow: hidden; }
+  .dates .pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .tagchips { display: grid; gap: 8px; margin-top: 4px; }
   .tagchips .chip { border-radius: 12px; padding: 14px 16px; font-size: 17px; text-align: left; }
   .search { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
@@ -171,6 +174,11 @@
 <section class="sheet" id="sheet-read" aria-label="Read">
   <h3>Read</h3>
   <p class="hint" id="read-hint"></p>
+  <div class="dates" id="read-dates">
+    <button class="chip" data-due="">No date</button><button class="chip" data-due="0">Today</button>
+    <button class="chip" data-due="1">Tomorrow</button><button class="chip" data-due="7">In a week</button>
+    <label class="chip pick">Date…<input type="date" id="read-date"></label>
+  </div>
   <div class="tagchips" id="read-tags"></div>
   <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
@@ -255,6 +263,7 @@ const REJECT_PREFIX = "rejected: ";    // on what you reject: "rejected: off top
 const REASONS = [["Off topic", "off topic"], ["Already known", "already known"], ["Weak study", "weak study"],
                  ["Too clinical", "too clinical"], ["Too technical", "too technical"], ["No reason", ""]];
 const MY_NOTE_TAG = "review-note";     // your own notes on an item
+const DUE_PREFIX = "due: ";            // when to read it, if you say: "due: 2026-10-25" (a reading task gets the date)
 // this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
 const store = {
   get(name) { try { return localStorage.getItem("watch-review." + name) || ""; } catch (e) { return ""; } },
@@ -901,13 +910,36 @@ function closeSheets() {
 
 function current() { return visible()[state.index]; }
 
+// a day from today as YYYY-MM-DD, in this device's time
+function dayFromNow(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function openRead() {
   if (!current()) return;
+  // no date unless you pick one – then tap the reading tag
+  let due = "";
+  const dates = document.getElementById("read-dates"), picker = document.getElementById("read-date");
+  const drawDates = () => {
+    for (const b of dates.querySelectorAll("[data-due]")) {
+      b.setAttribute("aria-pressed", String(b.dataset.due === "" ? !due : !!due && dayFromNow(Number(b.dataset.due)) === due));
+    }
+    const pick = dates.querySelector(".pick");
+    const custom = !!due && ![0, 1, 7].some(n => dayFromNow(n) === due);
+    pick.setAttribute("aria-pressed", String(custom));
+    pick.firstChild.textContent = custom ? due : "Date…";
+  };
+  dates.onclick = e => { const b = e.target.closest("[data-due]"); if (b) { due = b.dataset.due === "" ? "" : dayFromNow(Number(b.dataset.due)); drawDates(); } };
+  picker.value = "";
+  picker.onchange = () => { due = picker.value; drawDates(); };
+  drawDates();
   const last = cfg.readingTags.includes(store.get("readTag")) ? store.get("readTag") : cfg.readingTags[0];
-  document.getElementById("read-hint").textContent = `Pick the reading tag. ${whereTo(current())}`;
+  document.getElementById("read-hint").textContent = `Tap the reading tag – after a date, if you want one. ${whereTo(current())}`;
   const tags = document.getElementById("read-tags");
   tags.innerHTML = cfg.readingTags.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
-  tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag); };
+  tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag, due); };
   openSheet("sheet-read");
 }
 
@@ -972,14 +1004,16 @@ function whereTo(item) {
 }
 
 // out of the queue into its parent collection (if it has one); tagged where it came from, and maybe a reading tag
-function moveFields(item, data, readTag) {
+// (and when to read it)
+function moveFields(item, data, readTag, due) {
   const watchKeys = new Set(state.watch.map(w => w.key));
   const collections = (data.collections || []).filter(k => !watchKeys.has(k));
   if (item.watch.top && !collections.includes(item.watch.top)) collections.push(item.watch.top);
   const from = FROM_PREFIX + item.watch.name;
-  const tags = (data.tags || []).filter(t => t.tag !== from && t.tag !== readTag);
+  const tags = (data.tags || []).filter(t => t.tag !== from && t.tag !== readTag && !(due && t.tag.startsWith(DUE_PREFIX)));
   tags.push({ tag: from });
   if (readTag) tags.push({ tag: readTag });
+  if (due) tags.push({ tag: DUE_PREFIX + due });
   return { collections, tags };
 }
 
@@ -1042,14 +1076,14 @@ function itemChange(item, before, label) {
 }
 
 // kind "read" (arg: the reading tag), "keep" or "reject" (arg: the reason, "" for none)
-async function act(kind, arg) {
+async function act(kind, arg, due) {
   const item = current(); if (!item || state.busy) return;
   const before = snapshot(item);
   let build, message;
   if (kind === "read") {
     store.set("readTag", arg);
-    build = data => moveFields(item, data, arg);
-    message = `Tagged ${arg}`;
+    build = data => moveFields(item, data, arg, due);
+    message = `Tagged ${arg}` + (due ? `, to read by ${due}` : "");
   } else if (kind === "keep") {
     build = data => moveFields(item, data, null);
     message = item.watch.top ? `Kept – into ${item.watch.topName}` : `Kept – out of ${cfg.queue}`;
