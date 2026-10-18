@@ -26,6 +26,7 @@ collections = [
     {"key": "TOPT", "name": "T – Tro, tanke & teologi", "parentCollection": False},
     {"key": "WATT", "name": "Bevakning", "parentCollection": "TOPT"},
     {"key": "APOL", "name": "Apologetik", "parentCollection": "TOPT"},
+    {"key": "TREV", "name": "To review", "parentCollection": False},  # for the "Simple" setup
 ]
 
 
@@ -47,6 +48,10 @@ items = {i["key"]: i for i in [
             "Zygon", "2026-10-09", "WATT", "On fine-tuning and explanation."),
     article("IT05", "Finding Ourselves After Darwin", ["Rosenberg"], "", "2026-10-13", "WATT", kind="book"),
 ]}
+for extra in (dict(article("IT06", "A plain item to review", ["Svensson"], "BMJ", "2026-09-01", "TREV"), tags=[]),
+              dict(article("IT07", "Another item, in two collections", ["Berg"], "Lancet", "2026-09-02", "TREV"),
+                   tags=[], collections=["TREV", "APOL"])):
+    items[extra["key"]] = extra
 library = {i["key"]: i for i in [
     dict(article("LIB1", "Clonal evolution of Wilms tumour", ["Gong", "Andersson"], "Nature", "2024-01-01", "TOPF"),
          tags=[]),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Watch Review – the app's own files from the cache when offline (newest from the network first);
 // Zotero's API is never cached.
-const CACHE = "watch-review-v4";
+const CACHE = "watch-review-v5";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())));

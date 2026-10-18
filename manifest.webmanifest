@@ -1,7 +1,7 @@
 {
   "name": "Watch Review",
-  "short_name": "Bevakning",
-  "description": "Go through Zotero's Bevakning items: read, keep or reject.",
+  "short_name": "Watch Review",
+  "description": "Go through a Zotero collection on the phone, one item at a time: read, keep or reject.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

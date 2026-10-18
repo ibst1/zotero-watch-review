@@ -1,15 +1,16 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
      Zotero Watch Review – Copyright (C) 2026 Sebastian Ibstedt
-     Go through the items Partitur's literature watch has put in "<top> / Bevakning", one at a time, on the
-     phone: read (a reading tag), keep, reject (to the trash) – straight through Zotero's
-     web API with your own key, which stays in this browser. -->
+     Go through a Zotero collection one item at a time, on the phone: read (a reading tag), keep, reject (to the
+     trash) – straight through Zotero's web API with your own key, which stays in this browser. Which collection,
+     which tags and where kept items go are settings; the preset "Partitur" is for Partitur's literature watch
+     ("<top> / Bevakning"), whose notes, relevance and projects are shown when they are there. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Watch Review</title>
-<meta name="description" content="Go through Zotero's Bevakning items on the phone: read, keep or reject.">
+<meta name="description" content="Go through a Zotero collection on the phone, one item at a time: read, keep or reject.">
 <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
@@ -116,7 +117,10 @@
   .sheet-buttons { display: flex; gap: 8px; margin-top: 12px; }
   .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
   .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .sheet.scroll { overflow-y: auto; }
   .field { display: block; margin: 10px 0; }
+  .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); color: var(--text); font: inherit; margin-top: 4px; }
   .field input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; }
   .hint { font-size: 13px; color: var(--muted); }
   .toast { position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 20; max-width: 520px; margin: 0 auto;
@@ -128,7 +132,7 @@
 </head>
 <body>
 <header>
-  <h1>Bevakning</h1>
+  <h1 id="title">Watch Review</h1>
   <button class="icon-btn" id="undo" aria-label="Undo the last change" title="Undo" disabled>
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg><span class="count" id="undo-count"></span>
   </button>
@@ -154,21 +158,21 @@
 
 <section class="sheet" id="sheet-read" aria-label="Read">
   <h3>Read</h3>
-  <p class="hint">Pick the reading tag. The item goes to its field’s top collection, where Partitur’s Claude sorts it.</p>
+  <p class="hint" id="read-hint"></p>
   <div class="tagchips" id="read-tags"></div>
   <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
 
 <section class="sheet" id="sheet-reject" aria-label="Reject">
   <h3>Reject – why?</h3>
-  <p class="hint">The reason teaches Partitur’s watch what to leave out next time. The item goes to Zotero’s trash.</p>
+  <p class="hint" id="reject-hint"></p>
   <div class="tagchips" id="reject-reasons"></div>
   <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
 
 <section class="sheet" id="sheet-note" aria-label="Note">
   <h3>Note</h3>
-  <p class="hint">Saved in Zotero as a note on the item (tag bevakning-anteckning). Dictate with the keyboard’s microphone.</p>
+  <p class="hint" id="note-hint"></p>
   <textarea id="note-text" rows="5" placeholder="Compare with Gong 2024 …"></textarea>
   <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="note-save">Save</button></div>
 </section>
@@ -181,13 +185,47 @@
   <div class="sheet-buttons"><button data-close>Close</button></div>
 </section>
 
-<section class="sheet" id="sheet-settings" aria-label="Settings">
+<section class="sheet scroll" id="sheet-settings" aria-label="Settings">
   <h3>Settings</h3>
   <label class="field">Zotero API key
     <input id="set-key" type="password" autocomplete="off" spellcheck="false">
   </label>
   <p class="hint">Make one at zotero.org → Settings → Security → Create new private key, with “Allow library access”
     and “Allow write access”. It is kept in this browser only and sent only to api.zotero.org.</p>
+  <label class="field">Setup
+    <select id="set-preset"></select>
+  </label>
+  <div id="set-custom">
+    <label class="field">Collection to go through
+      <input id="set-queue" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="hint">Every collection with this name (at any level) is a queue; under a parent collection, the parent’s
+      first word labels it (F, M, T …).</p>
+    <label class="field">Queue tag <span class="hint">(optional)</span>
+      <input id="set-queue-tag" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="hint">Only items with this tag are shown, and reading or keeping one removes it. Empty: every item in the
+      collection.</p>
+    <label class="field">Reading tags <span class="hint">(comma between)</span>
+      <input id="set-reading" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="field">Read and Keep move the item
+      <select id="set-keep"><option value="parent">out of the collection, into its parent collection</option>
+        <option value="out">out of the collection (no other move)</option></select>
+    </label>
+    <label class="field">Tag on what you read or keep <span class="hint">(optional)</span>
+      <input id="set-done" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="field">Reasons to reject <span class="hint">(one per line: Label = tag)</span>
+      <textarea id="set-reasons" rows="5" spellcheck="false"></textarea>
+    </label>
+    <label class="field">Before the reason’s tag
+      <input id="set-reject-prefix" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="field">Tag on your notes
+      <input id="set-note-tag" autocomplete="off" spellcheck="false">
+    </label>
+  </div>
   <p class="hint" id="set-status"></p>
   <div class="sheet-buttons"><button data-close>Close</button><button class="primary" id="set-save">Save</button></div>
 </section>
@@ -198,19 +236,27 @@
 "use strict";
 // ---------------------------------------------------------------- settings
 
-const WATCH_COLLECTION = "Bevakning";
-const WATCH_TAG = "bevakning";
-const NOTE_TAG = "claude-bevakning";
-const ORIGIN_TAG = "från-bevakning"; // on what you read or keep: where it came from
-const PROJECT_TAG = "projekt: ";       // "projekt: F – 2610. Artikel - X": Partitur puts the item in that project's list
+// Partitur's own notes and tags, used when they are there (whatever the setup)
+const NOTE_TAG = "claude-bevakning";         // Claude's note on why an item was picked, and how relevant it is
+const PROJECT_TAG = "projekt: ";             // "projekt: F – 2610. Artikel - X": Partitur puts the item in that project's list
 const PROJECT_LIST_TAG = "partitur-projekt"; // Partitur's note listing the active projects
-const MY_NOTE_TAG = "bevakning-anteckning";  // your own notes on an item, from here
 const OPENALEX = "https://api.openalex.org"; // where a free full text is found, by DOI (no key needed)
-const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
-// why you reject: shown in English, saved in Swedish as the tag "avvisad: …" (Partitur reads it)
-const REJECT_PREFIX = "avvisad: ";
-const REJECT_REASONS = [["Off topic", "fel ämne"], ["Too clinical", "för kliniskt"], ["Too technical", "för tekniskt"],
-                        ["Already known", "redan känt"], ["Weak study", "svag studie"], ["No reason", ""]];
+
+// the setups: which collection is gone through and which tags say what. "Partitur" matches Partitur's literature
+// watch (its tags are Swedish: Partitur reads them); "Simple" works with any collection.
+const PRESETS = {
+  partitur: { label: "Partitur – literature watch (Bevakning)", queue: "Bevakning", queueTag: "bevakning",
+              readingTags: ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"],
+              keepTo: "parent", doneTag: "från-bevakning", rejectPrefix: "avvisad: ",
+              reasons: [["Off topic", "fel ämne"], ["Too clinical", "för kliniskt"], ["Too technical", "för tekniskt"],
+                        ["Already known", "redan känt"], ["Weak study", "svag studie"], ["No reason", ""]],
+              noteTag: "bevakning-anteckning" },
+  simple: { label: "Simple – any collection (“To review”)", queue: "To review", queueTag: "",
+            readingTags: ["to-read"], keepTo: "out", doneTag: "", rejectPrefix: "rejected: ",
+            reasons: [["Off topic", "off topic"], ["Already known", "already known"], ["Weak study", "weak study"],
+                      ["No reason", ""]],
+            noteTag: "review-note" },
+};
 // this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
 const store = {
   get(name) { try { return localStorage.getItem("watch-review." + name) || ""; } catch (e) { return ""; } },
@@ -225,10 +271,19 @@ const API = (() => {
   return store.get("api") || "https://api.zotero.org";
 })();
 
+// the setup in use: saved here, else "Partitur" for a browser that was set up before there were setups, else "Simple"
+const cfg = (() => {
+  let saved = null;
+  try { saved = JSON.parse(store.get("config") || "null"); } catch (e) {}
+  const preset = saved && PRESETS[saved.preset] ? saved.preset : saved ? "custom" : store.get("key") ? "partitur" : "simple";
+  return Object.assign({ preset }, PRESETS[preset === "custom" ? "simple" : preset], saved || {});
+})();
+const sameTag = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
 const state = {
   key: store.get("key"), userID: store.get("userID"),
   collections: [],      // all live collections
-  watch: [],            // [{key, top, topName, label}] – the Bevakning collections
+  watch: [],            // [{key, top, topName, label}] – the collections gone through (top: the parent, or null)
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
   index: 0, notes: new Map(), myNotes: new Map(), busy: false, openAccess: new Map(), related: new Map(),
@@ -313,12 +368,13 @@ async function load() {
     const colls = await getAll(userPath("/collections"));
     state.collections = colls.map(c => c.data).filter(c => !c.deleted);
     const byKey = new Map(state.collections.map(c => [c.key, c]));
-    state.watch = state.collections.filter(c => c.name === WATCH_COLLECTION && c.parentCollection).map(c => {
-      const top = byKey.get(c.parentCollection);
-      return { key: c.key, top: c.parentCollection, topName: top ? top.name : "?", label: (top ? top.name : "?").split(/\s+/)[0] };
+    state.watch = state.collections.filter(c => c.name.trim().toLowerCase() === cfg.queue.trim().toLowerCase()).map(c => {
+      const top = c.parentCollection ? byKey.get(c.parentCollection) : null;
+      return { key: c.key, top: top ? top.key : null, topName: top ? top.name : "",
+               label: top ? top.name.split(/\s+/)[0] : c.name };
     });
     const lists = await Promise.all(state.watch.map(w =>
-      getAll(userPath(`/collections/${w.key}/items/top?tag=${encodeURIComponent(WATCH_TAG)}&sort=dateAdded&direction=asc`))
+      getAll(userPath(`/collections/${w.key}/items/top?${cfg.queueTag ? `tag=${encodeURIComponent(cfg.queueTag)}&` : ""}sort=dateAdded&direction=asc`))
         .then(items => items.filter(i => !i.data.deleted).map(i => ({ key: i.key, version: i.version, data: i.data, watch: w })))));
     state.queue = lists.flat();
     await loadNotes(state.queue);
@@ -404,7 +460,7 @@ async function related(item) {
   for (const r of found) {
     const x = r.data;
     if (seen.has(r.key) || x.deleted || ["note", "attachment", "annotation"].includes(x.itemType)) continue;
-    if ((x.tags || []).some(t => t.tag === WATCH_TAG)) continue; // another Bevakning item
+    if ((x.collections || []).some(k => state.watch.some(w => w.key === k))) continue; // another one in the queue
     seen.add(r.key);
     out.push({ key: r.key, title: x.title, year: (x.date || "").match(/\d{4}/)?.[0] || "",
                who: (x.creators || []).map(c => c.lastName || c.name).filter(Boolean).slice(0, 2).join(", "),
@@ -423,7 +479,7 @@ async function whyNote(item) {
   const note = kids.find(d => tagged(d, NOTE_TAG));
   const html = note ? note.note : "";
   state.notes.set(item.key, html);
-  state.myNotes.set(item.key, kids.filter(d => tagged(d, MY_NOTE_TAG)).map(d => ({ key: d.key, version: d.version, note: d.note })));
+  state.myNotes.set(item.key, kids.filter(d => tagged(d, cfg.noteTag)).map(d => ({ key: d.key, version: d.version, note: d.note })));
   return html;
 }
 
@@ -436,7 +492,7 @@ async function saveNote(text) {
   const html = `<p>${esc(text.trim()).replace(/\n/g, "<br>")}</p>\n<p><em>Anteckning från Watch Review ${today}</em></p>`;
   try {
     const res = await (await api("POST", userPath("/items"), [{ itemType: "note", parentItem: item.key, note: html,
-                                                                tags: [{ tag: MY_NOTE_TAG }] }])).json();
+                                                                tags: [{ tag: cfg.noteTag }] }])).json();
     const made = (res.successful || {})["0"];
     if (!made) throw new Error("Zotero didn't save the note: " + JSON.stringify(res.failed || res).slice(0, 150));
     const mine = { key: made.key, version: made.version, note: html };
@@ -458,6 +514,8 @@ function openNote() {
   if (!current()) return;
   const box = document.getElementById("note-text");
   box.value = "";
+  document.getElementById("note-hint").textContent =
+    `Saved in Zotero as a note on the item (tag ${cfg.noteTag}). Dictate with the keyboard’s microphone.`;
   openSheet("sheet-note");
   setTimeout(() => box.focus(), 50);
 }
@@ -500,7 +558,7 @@ function render() {
   renderFields();
   const list = visible();
   if (!state.key) { setMain(`<div class="notice">Add your Zotero API key in Settings.</div>`); setActions(false); return; }
-  if (!state.watch.length) { setMain(`<div class="empty">No “${WATCH_COLLECTION}” collection found in your library.</div>`); setActions(false); return; }
+  if (!state.watch.length) { setMain(`<div class="empty">No collection called “${esc(cfg.queue)}” in your library – make one in Zotero, or pick another in Settings.</div>`); setActions(false); return; }
   if (!list.length) { setMain(`<div class="empty">Nothing left to go through. 🎉</div>`); setActions(false); return; }
   if (state.index >= list.length) state.index = 0;
   const item = list[state.index], d = item.data;
@@ -519,7 +577,7 @@ function render() {
       <div class="why" id="why" hidden></div>
       <div class="related" id="related" hidden></div>
       <div class="projects">${itemProjects(d).map(l => `<span class="ptag">${esc(projectName(l))}<button data-unproject="${esc(l)}" aria-label="Remove from ${esc(projectName(l))}">×</button></span>`).join("")}
-        <button class="add-project" id="add-project">＋ Project</button>
+        ${state.projects ? `<button class="add-project" id="add-project">＋ Project</button>` : ""}
         <button class="add-project" id="add-note">✎ Note</button></div>
       <div class="mynotes" id="mynotes"></div>
       ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
@@ -537,7 +595,7 @@ function render() {
     more.onclick = () => { abs.classList.remove("clamped"); more.hidden = true; };
   }
   setActions(true);
-  document.getElementById("add-project").onclick = openProjects;
+  if (state.projects) document.getElementById("add-project").onclick = openProjects;
   document.getElementById("add-note").onclick = openNote;
   const showMine = () => {
     const box = document.getElementById("mynotes");
@@ -586,9 +644,10 @@ function current() { return visible()[state.index]; }
 
 function openRead() {
   if (!current()) return;
-  const last = store.get("readTag") || READING_TAGS[0];
+  const last = cfg.readingTags.includes(store.get("readTag")) ? store.get("readTag") : cfg.readingTags[0];
+  document.getElementById("read-hint").textContent = `Pick the reading tag. ${whereTo(current())}`;
   const tags = document.getElementById("read-tags");
-  tags.innerHTML = READING_TAGS.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
+  tags.innerHTML = cfg.readingTags.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
   tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag); };
   openSheet("sheet-read");
 }
@@ -648,14 +707,22 @@ async function setProject(label, on) {
   }
 }
 
-// out of Bevakning into the field's top collection (Claude sorts it from there); the tag bevakning off (gone
-// through), the origin tag on, and maybe a reading tag
+// where Read and Keep put the item, in words
+function whereTo(item) {
+  if (cfg.keepTo === "parent" && item && item.watch.top) {
+    return `The item goes to ${item.watch.topName}` + (cfg.preset === "partitur" ? ", where Partitur’s Claude sorts it." : ".");
+  }
+  return `The item leaves ${cfg.queue}.`;
+}
+
+// out of the queue (and into its parent collection, if so set up); the queue tag off (gone through), the tag for
+// what you read or keep on, and maybe a reading tag
 function moveFields(item, data, readTag) {
   const watchKeys = new Set(state.watch.map(w => w.key));
-  const collections = [...new Set([...(data.collections || []).filter(k => !watchKeys.has(k)), item.watch.top])];
-  const drop = new Set([WATCH_TAG, ORIGIN_TAG, readTag]);
-  const tags = (data.tags || []).filter(t => !drop.has(t.tag));
-  tags.push({ tag: ORIGIN_TAG });
+  const collections = (data.collections || []).filter(k => !watchKeys.has(k));
+  if (cfg.keepTo === "parent" && item.watch.top && !collections.includes(item.watch.top)) collections.push(item.watch.top);
+  const tags = (data.tags || []).filter(t => ![cfg.queueTag, cfg.doneTag, readTag].some(x => sameTag(x, t.tag)));
+  if (cfg.doneTag) tags.push({ tag: cfg.doneTag });
   if (readTag) tags.push({ tag: readTag });
   return { collections, tags };
 }
@@ -703,7 +770,9 @@ function swipeable(card) {
 function openReject() {
   if (!current()) return;
   const box = document.getElementById("reject-reasons");
-  box.innerHTML = REJECT_REASONS.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
+  document.getElementById("reject-hint").textContent = "The reason is saved as a tag (" + cfg.rejectPrefix + "…)"
+    + (cfg.preset === "partitur" ? " and teaches Partitur’s watch what to leave out next time" : "") + ". The item goes to Zotero’s trash.";
+  box.innerHTML = cfg.reasons.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
   box.onclick = e => { const b = e.target.closest("[data-reason]"); if (b) act("reject", b.dataset.reason); };
   openSheet("sheet-reject");
 }
@@ -727,14 +796,14 @@ async function act(kind, arg) {
     message = `Tagged ${arg}`;
   } else if (kind === "keep") {
     build = data => moveFields(item, data, null);
-    message = `Kept – into ${item.watch.topName}`;
+    message = cfg.keepTo === "parent" && item.watch.top ? `Kept – into ${item.watch.topName}` : `Kept – out of ${cfg.queue}`;
   } else {
     build = data => {
-      const tags = (data.tags || []).filter(t => !t.tag.startsWith(REJECT_PREFIX));
-      if (arg) tags.push({ tag: REJECT_PREFIX + arg });
+      const tags = (data.tags || []).filter(t => !t.tag.startsWith(cfg.rejectPrefix));
+      if (arg) tags.push({ tag: cfg.rejectPrefix + arg });
       return { tags, deleted: 1 };
     };
-    const why = (REJECT_REASONS.find(([, tag]) => tag === arg) || [""])[0];
+    const why = (cfg.reasons.find(([, tag]) => tag === arg) || [""])[0];
     message = arg ? `Rejected (${why.toLowerCase()}) – in the trash` : "Rejected – in the trash";
   }
   closeSheets();
@@ -785,9 +854,38 @@ function hideToast() { document.getElementById("toast").classList.remove("open")
 
 // ---------------------------------------------------------------- settings sheet
 
+const SETTING_FIELDS = ["set-queue", "set-queue-tag", "set-reading", "set-keep", "set-done", "set-reasons",
+                        "set-reject-prefix", "set-note-tag"];
+
+function showSetup(c) {
+  const v = (id, value) => { document.getElementById(id).value = value; };
+  v("set-queue", c.queue); v("set-queue-tag", c.queueTag); v("set-reading", c.readingTags.join(", "));
+  v("set-keep", c.keepTo); v("set-done", c.doneTag); v("set-reject-prefix", c.rejectPrefix); v("set-note-tag", c.noteTag);
+  v("set-reasons", c.reasons.map(([label, tag]) => tag ? `${label} = ${tag}` : `${label} =`).join("\n"));
+}
+
+function readSetup() {
+  const v = id => document.getElementById(id).value.trim();
+  const reasons = v("set-reasons").split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+    const [label, ...tag] = l.split("=");
+    return [label.trim(), tag.join("=").trim()];
+  });
+  return { preset: document.getElementById("set-preset").value, queue: v("set-queue"), queueTag: v("set-queue-tag"),
+           readingTags: v("set-reading").split(",").map(t => t.trim()).filter(Boolean), keepTo: v("set-keep"),
+           doneTag: v("set-done"), rejectPrefix: document.getElementById("set-reject-prefix").value,
+           reasons: reasons.length ? reasons : [["No reason", ""]], noteTag: v("set-note-tag") };
+}
+
 function openSettings(first) {
   document.getElementById("set-key").value = state.key;
   document.getElementById("set-status").textContent = first ? "Add your Zotero API key to start." : "";
+  const preset = document.getElementById("set-preset");
+  preset.innerHTML = Object.entries(PRESETS).map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`).join("")
+    + `<option value="custom">Your own</option>`;
+  preset.value = cfg.preset;
+  preset.onchange = () => { if (PRESETS[preset.value]) showSetup(PRESETS[preset.value]); };
+  for (const id of SETTING_FIELDS) document.getElementById(id).oninput = () => { preset.value = "custom"; };
+  showSetup(cfg);
   openSheet("sheet-settings");
 }
 
@@ -795,13 +893,23 @@ async function saveSettings() {
   const key = document.getElementById("set-key").value.trim();
   const status = document.getElementById("set-status");
   if (!key) { status.textContent = "Paste the key first."; return; }
+  const setup = readSetup();
+  if (!setup.queue) { status.textContent = "Name the collection to go through."; return; }
+  if (!setup.readingTags.length) { status.textContent = "Give at least one reading tag."; return; }
+  if (!setup.noteTag) { status.textContent = "Give a tag for your notes."; return; }
   status.textContent = "Checking…";
   try {
-    const userID = await checkKey(key);
+    const userID = key === state.key && state.userID ? state.userID : await checkKey(key);
     state.key = key; state.userID = userID;
     store.set("key", key); store.set("userID", userID);
-    status.textContent = "The key works.";
+    if (PRESETS[setup.preset]) Object.assign(setup, PRESETS[setup.preset], { preset: setup.preset });
+    delete setup.label;
+    Object.assign(cfg, setup);
+    store.set("config", JSON.stringify(setup));
+    document.getElementById("title").textContent = cfg.queue;
+    status.textContent = "Saved.";
     closeSheets();
+    state.field = "all"; store.set("field", "");
     load();
   } catch (e) {
     state.key = store.get("key");
@@ -838,6 +946,7 @@ document.getElementById("fields").onclick = e => {
 };
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.key && !state.busy && !document.querySelector(".sheet.open")) load(); });
 
+document.getElementById("title").textContent = cfg.queue;
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 load();
 </script>
