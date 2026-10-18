@@ -140,6 +140,13 @@
   <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
 
+<section class="sheet" id="sheet-reject" aria-label="Reject">
+  <h3>Reject – why?</h3>
+  <p class="hint">The reason teaches Partitur’s watch what to leave out next time. The item goes to Zotero’s trash.</p>
+  <div class="tagchips" id="reject-reasons"></div>
+  <div class="sheet-buttons"><button data-close>Cancel</button></div>
+</section>
+
 <section class="sheet" id="sheet-project" aria-label="Project">
   <h3>Put in a project</h3>
   <p class="hint">It goes into the project’s “Litteratur (Claude).md” at Partitur’s next run, marked “föreslagen av dig”.</p>
@@ -172,6 +179,10 @@ const ORIGIN_TAG = "från-bevakning"; // on what you read or keep: where it came
 const PROJECT_TAG = "projekt: ";       // "projekt: F – 2610. Artikel - X": Partitur puts the item in that project's list
 const PROJECT_LIST_TAG = "partitur-projekt"; // Partitur's note listing the active projects
 const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
+// why you reject: shown in English, saved in Swedish as the tag "avvisad: …" (Partitur reads it)
+const REJECT_PREFIX = "avvisad: ";
+const REJECT_REASONS = [["Off topic", "fel ämne"], ["Too clinical", "för kliniskt"], ["Too technical", "för tekniskt"],
+                        ["Already known", "redan känt"], ["Weak study", "svag studie"], ["No reason", ""]];
 // this browser's storage – may be missing (private window, blocked site data): then nothing is remembered
 const store = {
   get(name) { try { return localStorage.getItem("watch-review." + name) || ""; } catch (e) { return ""; } },
@@ -193,7 +204,7 @@ const state = {
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
   index: 0, notes: new Map(), busy: false,
-  history: [],          // [{item, before, label}] – every change this session, the newest last (Undo takes them back)
+  history: [],          // [{label, item, revert}] – every change this session, the newest last (Undo takes them back)
   projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
 };
 
@@ -281,7 +292,8 @@ async function load() {
     const lists = await Promise.all(state.watch.map(w =>
       getAll(userPath(`/collections/${w.key}/items/top?tag=${encodeURIComponent(WATCH_TAG)}&sort=dateAdded&direction=asc`))
         .then(items => items.filter(i => !i.data.deleted).map(i => ({ key: i.key, version: i.version, data: i.data, watch: w })))));
-    state.queue = lists.flat().sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
+    state.queue = lists.flat();
+    sortQueue();
     state.projects = await projectList();
     state.index = Math.max(0, visible().findIndex(i => i.key === showing));
     render();
@@ -289,6 +301,11 @@ async function load() {
     setMain(`<div class="notice error">${esc(e.message)}</div>`);
     renderFields(); setActions(false);
   }
+}
+
+// oldest first
+function sortQueue() {
+  state.queue.sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
 }
 
 function visible() {
@@ -458,7 +475,7 @@ async function openProjects() {
 async function setProject(label, on) {
   const item = current(); if (!item || state.busy) return;
   const tag = PROJECT_TAG + label;
-  const before = { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
+  const before = snapshot(item);
   closeSheets();
   state.busy = true; setActions(false);
   try {
@@ -467,7 +484,7 @@ async function setProject(label, on) {
       if (on) tags.push({ tag });
       return { tags };
     });
-    state.history.push({ item, before, label: on ? `In ${projectName(label)}` : `Out of ${projectName(label)}` });
+    state.history.push(itemChange(item, before, on ? `In ${projectName(label)}` : `Out of ${projectName(label)}`));
     toast(on ? `In ${projectName(label)}` : `Out of ${projectName(label)}`, true);
   } catch (e) {
     toast(e.message, false);
@@ -489,27 +506,49 @@ function moveFields(item, data, readTag) {
   return { collections, tags };
 }
 
-async function act(kind, readTag) {
+function openReject() {
+  if (!current()) return;
+  const box = document.getElementById("reject-reasons");
+  box.innerHTML = REJECT_REASONS.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
+  box.onclick = e => { const b = e.target.closest("[data-reason]"); if (b) act("reject", b.dataset.reason); };
+  openSheet("sheet-reject");
+}
+
+// an item's tags and collections as they were, to go back to
+function snapshot(item) {
+  return { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
+}
+function itemChange(item, before, label) {
+  return { label, item, revert: () => patchItem(item, () => ({ collections: before.collections, tags: before.tags, deleted: 0 })) };
+}
+
+// kind "read" (arg: the reading tag), "keep" or "reject" (arg: the reason, "" for none)
+async function act(kind, arg) {
   const item = current(); if (!item || state.busy) return;
-  const before = { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
+  const before = snapshot(item);
   let build, message;
   if (kind === "read") {
-    store.set("readTag", readTag);
-    build = data => moveFields(item, data, readTag);
-    message = `Tagged ${readTag}`;
+    store.set("readTag", arg);
+    build = data => moveFields(item, data, arg);
+    message = `Tagged ${arg}`;
   } else if (kind === "keep") {
     build = data => moveFields(item, data, null);
     message = `Kept – into ${item.watch.topName}`;
   } else {
-    build = () => ({ deleted: 1 });
-    message = "Moved to the trash";
+    build = data => {
+      const tags = (data.tags || []).filter(t => !t.tag.startsWith(REJECT_PREFIX));
+      if (arg) tags.push({ tag: REJECT_PREFIX + arg });
+      return { tags, deleted: 1 };
+    };
+    const why = (REJECT_REASONS.find(([, tag]) => tag === arg) || [""])[0];
+    message = arg ? `Rejected (${why.toLowerCase()}) – in the trash` : "Rejected – in the trash";
   }
   closeSheets();
   state.busy = true; setActions(false);
   try {
     await patchItem(item, build);
     state.queue.splice(state.queue.indexOf(item), 1); // the next one moves up to the same place
-    state.history.push({ item, before, label: message });
+    state.history.push(itemChange(item, before, message));
     toast(message, true);
   } catch (e) {
     toast(e.message, false);
@@ -525,10 +564,10 @@ async function undo() {
   hideToast();
   state.busy = true; setActions(false);
   try {
-    await patchItem(u.item, () => ({ collections: u.before.collections, tags: u.before.tags, deleted: 0 }));
+    await u.revert();
     state.history.pop();
     if (!state.queue.includes(u.item)) state.queue.push(u.item);
-    state.queue.sort((a, b) => a.data.dateAdded.localeCompare(b.data.dateAdded));
+    sortQueue();
     if (!visible().includes(u.item)) { state.field = "all"; store.set("field", ""); }
     state.index = Math.max(0, visible().indexOf(u.item));
     toast(`Undone: ${u.label}`, false);
@@ -580,7 +619,7 @@ async function saveSettings() {
 
 document.getElementById("act-read").onclick = openRead;
 document.getElementById("act-keep").onclick = () => act("keep");
-document.getElementById("act-reject").onclick = () => act("reject");
+document.getElementById("act-reject").onclick = openReject;
 function step(by) {
   const n = visible().length;
   if (!n) return;
