@@ -9,6 +9,7 @@ The items come most relevant first (Claude's *hög* before *medel*), then oldest
 - **Read** – one tap on a reading tag (`to-read`, `to-skim`, `to-read-methods`, `to-read-background`,
   `to-review`).
 - **Keep** – kept in the library, nothing to read now.
+- **Swipe** the card right to keep it, left to reject it (it asks why).
 - **Reject** – with a reason (off topic, too clinical, too technical, already known, weak study – or none), saved as
   the tag `avvisad: <reason>`; to Zotero's trash (recoverable there). Partitur's watch learns from your decisions:
   what you read, keep and reject – and why – is shown to Claude when it screens the next ones.
