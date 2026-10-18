@@ -64,6 +64,7 @@ project_list = {"key": "PLST", "version": 5, "itemType": "note", "tags": [{"tag"
                 "note": "<h1>Partitur: aktiva projekt</h1>\n<ul>\n<li>F – 2601. Wilms tumour evolution</li>\n"
                         "<li>F – 2605. Metylering i barntumörer</li>\n<li>T – 2610. Artikel - Försyn, slump och mutation</li>\n"
                         "<li>M – Riktlinjer sarkom</li>\n</ul>"}
+own_notes = {}  # notes made in the app
 library_version = [100]
 
 
@@ -91,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
         self.end_headers()
 
@@ -119,7 +120,9 @@ class Handler(BaseHTTPRequestHandler):
                         and (tag is None or any(t["tag"] == tag for t in i["tags"]))]
                 return self.page([wrap(i) for i in sorted(rows, key=lambda i: i["dateAdded"])], q)
             if len(rest) == 3 and rest[0] == "items" and rest[2] == "children":
-                return self.send(200, [wrap(notes[rest[1]])] if rest[1] in notes else [])
+                kids = ([notes[rest[1]]] if rest[1] in notes else []) + [n for n in own_notes.values()
+                                                                         if n["parentItem"] == rest[1]]
+                return self.send(200, [wrap(n) for n in kids])
             if rest == ["items", "top"] and "q" in q:
                 words = q["q"][0].lower().split()
                 rows = [i for i in list(items.values()) + list(library.values())
@@ -144,6 +147,28 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def do_POST(self):
+        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        if parts != ["users", USER, "items"]:
+            return self.send(404, {"error": "unknown"})
+        made = {}
+        for n, obj in enumerate(json.loads(self.rfile.read(int(self.headers["Content-Length"])))):
+            library_version[0] += 1
+            key = f"NOTE{len(own_notes) + 1}"
+            own_notes[key] = dict(obj, key=key, version=library_version[0])
+            made[str(n)] = {"key": key, "version": library_version[0], "data": own_notes[key]}
+        self.send(200, {"successful": made, "success": {k: v["key"] for k, v in made.items()}, "failed": {}})
+
+    def do_DELETE(self):
+        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        key = parts[-1]
+        if key not in own_notes:
+            return self.send(404, {"error": "unknown"})
+        if int(self.headers.get("If-Unmodified-Since-Version", "-1")) != own_notes[key]["version"]:
+            return self.send(412)
+        del own_notes[key]
+        self.send(204)
 
     def do_PATCH(self):
         parts = [p for p in urlparse(self.path).path.split("/") if p]

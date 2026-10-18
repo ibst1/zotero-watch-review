@@ -108,6 +108,11 @@
   .ptag button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1; }
   .add-project { border: 1px dashed var(--line); background: none; border-radius: 999px; padding: 7px 14px; font-size: 14px;
     cursor: pointer; color: var(--accent); }
+  #note-text { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+    color: var(--text); font: inherit; resize: vertical; }
+  .mynotes { margin: 10px 0 0; display: grid; gap: 6px; }
+  .mynote { background: var(--chip); border-radius: 10px; padding: 8px 12px; font-size: 15px; }
+  .mynote p { margin: 0; white-space: pre-line; } .mynote p + p { color: var(--muted); font-size: 12px; margin-top: 4px; }
   .sheet-buttons { display: flex; gap: 8px; margin-top: 12px; }
   .sheet-buttons button { flex: 1; border-radius: 12px; padding: 12px; border: 1px solid var(--line); background: var(--chip); cursor: pointer; font-weight: 600; }
   .sheet-buttons .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -161,6 +166,13 @@
   <div class="sheet-buttons"><button data-close>Cancel</button></div>
 </section>
 
+<section class="sheet" id="sheet-note" aria-label="Note">
+  <h3>Note</h3>
+  <p class="hint">Saved in Zotero as a note on the item (tag bevakning-anteckning). Dictate with the keyboard’s microphone.</p>
+  <textarea id="note-text" rows="5" placeholder="Compare with Gong 2024 …"></textarea>
+  <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="note-save">Save</button></div>
+</section>
+
 <section class="sheet" id="sheet-project" aria-label="Project">
   <h3>Put in a project</h3>
   <p class="hint">It goes into the project’s “Litteratur (Claude).md” at Partitur’s next run, marked “föreslagen av dig”.</p>
@@ -192,6 +204,7 @@ const NOTE_TAG = "claude-bevakning";
 const ORIGIN_TAG = "från-bevakning"; // on what you read or keep: where it came from
 const PROJECT_TAG = "projekt: ";       // "projekt: F – 2610. Artikel - X": Partitur puts the item in that project's list
 const PROJECT_LIST_TAG = "partitur-projekt"; // Partitur's note listing the active projects
+const MY_NOTE_TAG = "bevakning-anteckning";  // your own notes on an item, from here
 const OPENALEX = "https://api.openalex.org"; // where a free full text is found, by DOI (no key needed)
 const READING_TAGS = ["to-read", "to-skim", "to-read-methods", "to-read-background", "to-review"];
 // why you reject: shown in English, saved in Swedish as the tag "avvisad: …" (Partitur reads it)
@@ -218,7 +231,7 @@ const state = {
   watch: [],            // [{key, top, topName, label}] – the Bevakning collections
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
-  index: 0, notes: new Map(), busy: false, openAccess: new Map(), related: new Map(),
+  index: 0, notes: new Map(), myNotes: new Map(), busy: false, openAccess: new Map(), related: new Map(),
   history: [],          // [{label, item, revert}] – every change this session, the newest last (Undo takes them back)
   projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
 };
@@ -402,13 +415,51 @@ async function related(item) {
   return out;
 }
 
+// the item's notes: Claude's (why it was picked) and your own from here; Claude's HTML is returned
 async function whyNote(item) {
   if (state.notes.has(item.key)) return state.notes.get(item.key);
-  const kids = await (await api("GET", userPath(`/items/${item.key}/children`))).json();
-  const note = kids.map(k => k.data).find(d => d.itemType === "note" && (d.tags || []).some(t => t.tag === NOTE_TAG));
+  const kids = (await (await api("GET", userPath(`/items/${item.key}/children`))).json()).map(k => k.data);
+  const tagged = (d, tag) => d.itemType === "note" && !d.deleted && (d.tags || []).some(t => t.tag === tag);
+  const note = kids.find(d => tagged(d, NOTE_TAG));
   const html = note ? note.note : "";
   state.notes.set(item.key, html);
+  state.myNotes.set(item.key, kids.filter(d => tagged(d, MY_NOTE_TAG)).map(d => ({ key: d.key, version: d.version, note: d.note })));
   return html;
+}
+
+// a note of your own, as a child note of the item in Zotero
+async function saveNote(text) {
+  const item = current(); if (!item || state.busy || !text.trim()) return;
+  closeSheets();
+  state.busy = true; setActions(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const html = `<p>${esc(text.trim()).replace(/\n/g, "<br>")}</p>\n<p><em>Anteckning från Watch Review ${today}</em></p>`;
+  try {
+    const res = await (await api("POST", userPath("/items"), [{ itemType: "note", parentItem: item.key, note: html,
+                                                                tags: [{ tag: MY_NOTE_TAG }] }])).json();
+    const made = (res.successful || {})["0"];
+    if (!made) throw new Error("Zotero didn't save the note: " + JSON.stringify(res.failed || res).slice(0, 150));
+    const mine = { key: made.key, version: made.version, note: html };
+    state.myNotes.set(item.key, [...(state.myNotes.get(item.key) || []), mine]);
+    state.history.push({ label: "Note", item, revert: async () => {
+      await api("DELETE", userPath(`/items/${mine.key}`), undefined, mine.version);
+      state.myNotes.set(item.key, (state.myNotes.get(item.key) || []).filter(n => n.key !== mine.key));
+    } });
+    toast("Note saved", true);
+  } catch (e) {
+    toast(e.message, false);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+function openNote() {
+  if (!current()) return;
+  const box = document.getElementById("note-text");
+  box.value = "";
+  openSheet("sheet-note");
+  setTimeout(() => box.focus(), 50);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -426,6 +477,7 @@ function setActions(on) {
 // the note is Partitur's own HTML: only its paragraphs' text is shown
 function noteHTML(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
+  for (const br of doc.querySelectorAll("br")) br.replaceWith("\n");
   return [...doc.querySelectorAll("p")].map(p => `<p>${esc(p.textContent)}</p>`).join("");
 }
 
@@ -467,7 +519,9 @@ function render() {
       <div class="why" id="why" hidden></div>
       <div class="related" id="related" hidden></div>
       <div class="projects">${itemProjects(d).map(l => `<span class="ptag">${esc(projectName(l))}<button data-unproject="${esc(l)}" aria-label="Remove from ${esc(projectName(l))}">×</button></span>`).join("")}
-        <button class="add-project" id="add-project">＋ Project</button></div>
+        <button class="add-project" id="add-project">＋ Project</button>
+        <button class="add-project" id="add-note">✎ Note</button></div>
+      <div class="mynotes" id="mynotes"></div>
       ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
         <button class="linkish" id="more" hidden>Show all</button>` : `<p class="hint">No abstract.</p>`}
       <div class="links" id="links">
@@ -484,6 +538,13 @@ function render() {
   }
   setActions(true);
   document.getElementById("add-project").onclick = openProjects;
+  document.getElementById("add-note").onclick = openNote;
+  const showMine = () => {
+    const box = document.getElementById("mynotes");
+    if (!box || current() !== item) return;
+    box.innerHTML = (state.myNotes.get(item.key) || []).map(n => `<div class="mynote">${noteHTML(n.note)}</div>`).join("");
+  };
+  showMine();
   swipeable(document.getElementById("card"));
   for (const b of document.querySelectorAll("[data-unproject]")) b.onclick = () => setProject(b.dataset.unproject, false);
   related(item).then(list => {
@@ -506,6 +567,7 @@ function render() {
     if (!box || visible()[state.index] !== item || !html) return;
     box.innerHTML = noteHTML(html);
     box.hidden = false;
+    showMine();
   }).catch(() => {});
 }
 
@@ -762,6 +824,7 @@ function step(by) {
 document.getElementById("act-skip").onclick = () => step(1);
 document.getElementById("act-back").onclick = () => step(-1);
 document.getElementById("undo").onclick = undo;
+document.getElementById("note-save").onclick = () => saveNote(document.getElementById("note-text").value);
 document.getElementById("refresh").onclick = () => { state.notes.clear(); load(); };
 document.getElementById("open-settings").onclick = () => openSettings(false);
 document.getElementById("set-save").onclick = saveSettings;

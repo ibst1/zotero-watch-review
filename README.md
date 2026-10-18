@@ -15,6 +15,7 @@ The items come most relevant first (Claude's *hög* before *medel*), then oldest
   what you read, keep and reject – and why – is shown to Claude when it screens the next ones.
 - **Already in your library** / **related** – the same work (by title) or works by the same first authors that
   you already have, from Zotero's quick search.
+- **✎ Note** – a short note (or dictated) saved as a child note of the item in Zotero (tag `bevakning-anteckning`).
 - **Open PDF** – shown when OpenAlex knows a free full text for the DOI.
 - **›** / **‹** – on to the next one or back to the one before (they stay).
 - **＋ Project** – put it in one of your active projects (more than one is fine; × takes it out again). It stays in
