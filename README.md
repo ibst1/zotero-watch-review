@@ -5,8 +5,25 @@ or reject it – straight through Zotero's web API. No server and no install: op
 <https://ibst1.github.io/zotero-watch-review/>, add it to the home screen, paste a Zotero key. Made because Zotero
 for Android can't edit tags.
 
-Useful for any pile of items waiting for a decision: what the Zotero Connector saved this week, a collection fed by a
-literature alert, papers someone sent you. Put them in a collection (by default **To review**) and go through them.
+Useful for any pile of items waiting for a decision: what the Zotero Connector saved this week, papers someone sent
+you – or new articles from your own searches and feeds, which the app fetches itself (below). They go in a collection
+(by default **To review**), and you go through them.
+
+## Sources: new articles by themselves
+
+In Settings → *Sources*, add searches and feeds; their new items are put in the collection when the app opens (at
+most every 6 hours; a new source looks two weeks back), with the source in the item's *Extra*. Nothing already in your
+library – or in its trash, so what you rejected doesn't come back – is added again (by DOI, else by title).
+
+- **PubMed search** – any PubMed query, e.g. `wilms tumour[tiab] OR nephroblastoma[tiab]`.
+- **Europe PMC search** – PubMed plus preprints (bioRxiv, medRxiv …), e.g. `"wilms tumour" OR nephroblastoma`.
+- **Journal, by ISSN** – the journal's new articles, from Crossref (works for nearly every journal).
+- **RSS or Atom feed** – PubMed's own feeds work as they are; most journals' feeds don't let a web page read them,
+  so use the journal's ISSN instead, or a feed proxy of your own: `feed-proxy/worker.js` is a Cloudflare Worker
+  (free) for that – its address with `?url=` goes in Settings.
+
+The sources are kept in a Zotero note (tag `watch-review-sources`), so all your devices share them and know when they
+were last read. Nothing is filtered by relevance: you get what the search finds, and decide in the app.
 
 ## Each item
 
@@ -32,7 +49,8 @@ session).
 ## Settings (⚙)
 
 - **Zotero API key** – zotero.org → Settings → Security → *Create new private key*, with **Allow library access**
-  and **Allow write access**. Kept in this browser only and sent only to `api.zotero.org` (OpenAlex gets only DOIs).
+  and **Allow write access**. Kept in this browser only and sent only to `api.zotero.org` (OpenAlex gets only DOIs;
+  the sources get only your searches).
 - **Setup** – *Simple* (the collection *To review*, no tags needed) or *Partitur* (below), or your own:
   - the collection to go through – every collection with that name is a queue; under a parent collection, the
     parent's first word labels it, and you can filter by it (e.g. *F – Research / To review*, *T – Theology / To

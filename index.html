@@ -48,6 +48,16 @@
   .chip { border: 1px solid var(--line); background: var(--chip); border-radius: 999px; padding: 5px 12px;
     font-size: 14px; white-space: nowrap; cursor: pointer; }
   .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .status { padding: 8px 16px 0; font-size: 13px; color: var(--muted); }
+  .srcrow { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+    margin: 6px 0; font-size: 14px; }
+  .srcrow span { flex: 1; overflow-wrap: anywhere; }
+  .srcrow small { color: var(--muted); display: block; }
+  .srcrow button { background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; padding: 2px 6px; }
+  .row-buttons { display: flex; gap: 8px; margin-top: 8px; }
+  .row-buttons button { flex: 1; border-radius: 10px; padding: 10px; border: 1px solid var(--line); background: var(--chip);
+    cursor: pointer; font-weight: 600; }
+  .sheet h4 { margin: 18px 0 4px; font-size: 15px; }
   main { padding: 12px 16px calc(env(safe-area-inset-bottom) + 96px); max-width: 720px; margin: 0 auto; }
   .card { touch-action: pan-y; position: relative; transition: transform .18s ease; }
   .card.dragging { transition: none; }
@@ -144,6 +154,7 @@
   </button>
 </header>
 <div class="fields" id="fields"></div>
+<div class="status" id="status" hidden></div>
 <main id="main"><div class="notice">Loading…</div></main>
 
 <div class="actions" id="actions">
@@ -226,6 +237,26 @@
       <input id="set-note-tag" autocomplete="off" spellcheck="false">
     </label>
   </div>
+  <h4>Sources</h4>
+  <p class="hint">Searches and feeds whose new items are put in the collection when the app opens (every
+    6 hours) – nothing already in your library or its trash. They are kept in a Zotero note, so all your
+    devices share them.</p>
+  <div id="src-list"></div>
+  <label class="field">Add a source
+    <select id="src-type"></select>
+  </label>
+  <input class="search" id="src-query" autocomplete="off" spellcheck="false">
+  <label class="field" id="src-queue-field">Into
+    <select id="src-queue"></select>
+  </label>
+  <div class="row-buttons"><button id="src-add">Add</button><button id="src-check">Read them now</button></div>
+  <p class="hint" id="src-status"></p>
+  <label class="field">Feed proxy <span class="hint">(optional)</span>
+    <input id="set-proxy" autocomplete="off" spellcheck="false" placeholder="https://your-proxy.workers.dev/?url=">
+  </label>
+  <p class="hint">Most journals’ own feeds can’t be read from a web page – use the journal’s ISSN instead, or a proxy:
+    an address the feed’s address is put after (your own, e.g. the small Cloudflare Worker in this app’s repository;
+    it sees which feeds you read). PubMed feeds and the searches need none.</p>
   <p class="hint" id="set-status"></p>
   <div class="sheet-buttons"><button data-close>Close</button><button class="primary" id="set-save">Save</button></div>
 </section>
@@ -289,6 +320,7 @@ const state = {
   index: 0, notes: new Map(), myNotes: new Map(), busy: false, openAccess: new Map(), related: new Map(),
   history: [],          // [{label, item, revert}] – every change this session, the newest last (Undo takes them back)
   projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
+  sources: null,        // {note, list} – see loadSources
 };
 
 // ---------------------------------------------------------------- Zotero web API
@@ -358,9 +390,262 @@ async function patchItem(item, build) {
   if (fields.deleted === 0) delete item.data.deleted;
 }
 
+// ---------------------------------------------------------------- sources: new items into the queue
+
+// Searches and feeds that put new items in the queue when the app opens (at most every EVERY_HOURS). They are kept
+// in a Zotero note (tag watch-review-sources), so every device has the same ones and knows when they were last read.
+const SOURCES_TAG = "watch-review-sources";
+const SOURCE_TYPES = {
+  pubmed: { label: "PubMed search", placeholder: "wilms tumour[tiab] OR nephroblastoma[tiab]" },
+  europepmc: { label: "Europe PMC search (with preprints)", placeholder: "\"wilms tumour\" OR nephroblastoma" },
+  journal: { label: "Journal – new articles, by ISSN", placeholder: "1467-9744" },
+  feed: { label: "RSS or Atom feed", placeholder: "https://pubmed.ncbi.nlm.nih.gov/rss/search/…" },
+};
+const FIRST_DAYS = 14;   // how far back a new source looks
+const EVERY_HOURS = 6;   // how often the sources are read
+const MAX_NEW = 40;      // new items per source and time
+// a test server for the sources too: ?mocksources=1 (with ?api=…) sends their requests to <api>/ext/<host>/…
+const MOCK_EXT = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.has("mocksources")) store.set("mockSources", q.get("mocksources"));
+  return store.get("mockSources") && API !== "https://api.zotero.org" ? API + "/ext/" : "";
+})();
+const ext = url => MOCK_EXT ? MOCK_EXT + url.replace(/^https?:\/\//, "") : url;
+
+const day = d => d.toISOString().slice(0, 10);
+const strip = html => new DOMParser().parseFromString(html || "", "text/html").body.textContent.replace(/\s+/g, " ").trim();
+const person = (last, first) => last ? { creatorType: "author", lastName: last, firstName: first || "" }
+                                     : null;
+
+async function getJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${new URL(url).host} answered ${res.status}`);
+  return res.json();
+}
+
+// a feed's text: straight, or through the proxy in Settings (most journal feeds can't be read from a web page)
+async function getFeed(url) {
+  try {
+    const res = await fetch(ext(url));
+    if (res.ok) return await res.text();
+  } catch (e) { /* not readable from here: try the proxy */ }
+  if (!cfg.feedProxy) throw new Error("this feed can't be read from a browser – add a feed proxy in Settings, or use the journal's ISSN");
+  const res = await fetch(cfg.feedProxy + encodeURIComponent(url));
+  if (!res.ok) throw new Error(`the feed proxy answered ${res.status}`);
+  return res.text();
+}
+
+// a source's new items since a day, as Zotero fields
+const FETCH = {
+  async pubmed(q, since) {
+    const term = `(${q}) AND ("${since.replace(/-/g, "/")}"[EDAT] : "3000"[EDAT])`;
+    const found = await getJSON(ext(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&sort=pub_date&retmax=${MAX_NEW}&term=${encodeURIComponent(term)}`));
+    const ids = (found.esearchresult || {}).idlist || [];
+    if (!ids.length) return [];
+    const res = await fetch(ext(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${ids.join(",")}`));
+    if (!res.ok) throw new Error(`PubMed answered ${res.status}`);
+    const doc = new DOMParser().parseFromString(await res.text(), "text/xml");
+    const text = (el, sel) => (el.querySelector(sel) || {}).textContent || "";
+    return [...doc.querySelectorAll("PubmedArticle")].map(a => {
+      const year = text(a, "PubDate Year") || (text(a, "PubDate MedlineDate").match(/\d{4}/) || [""])[0];
+      return {
+        itemType: "journalArticle", title: text(a, "ArticleTitle").replace(/\.$/, ""),
+        creators: [...a.querySelectorAll("AuthorList Author")].map(au => person(text(au, "LastName"), text(au, "ForeName")) ||
+                  (text(au, "CollectiveName") ? { creatorType: "author", name: text(au, "CollectiveName") } : null)).filter(Boolean),
+        abstractNote: [...a.querySelectorAll("Abstract AbstractText")].map(t => (t.getAttribute("Label") ? t.getAttribute("Label") + ": " : "") + t.textContent).join("\n"),
+        publicationTitle: text(a, "Journal Title"), date: [year, text(a, "PubDate Month")].filter(Boolean).join(" "),
+        DOI: text(a, 'ArticleIdList ArticleId[IdType="doi"]'), pmid: text(a, "MedlineCitation > PMID"),
+      };
+    });
+  },
+
+  async europepmc(q, since) {
+    const query = `(${q}) AND FIRST_IDATE:[${since} TO 3000-01-01]`;
+    const found = await getJSON(ext(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=${MAX_NEW}&query=${encodeURIComponent(query)}`));
+    return ((found.resultList || {}).result || []).map(r => {
+      const preprint = r.source === "PPR";
+      const authors = ((r.authorList || {}).author || []).map(a => a.lastName ? person(a.lastName, a.firstName)
+                                                                             : a.fullName ? { creatorType: "author", name: a.fullName } : null);
+      return {
+        itemType: preprint ? "preprint" : "journalArticle", title: strip(r.title).replace(/\.$/, ""), creators: authors.filter(Boolean),
+        abstractNote: strip(r.abstractText),
+        [preprint ? "repository" : "publicationTitle"]: preprint ? ((r.bookOrReportDetails || {}).publisher || "")
+                                                                 : (((r.journalInfo || {}).journal || {}).title || ""),
+        date: r.firstPublicationDate || "", DOI: r.doi || "", pmid: r.pmid || "",
+      };
+    });
+  },
+
+  // new works indexed since the day – an article registered as "Title Pending" comes when it gets its title (but
+  // only within a month: older works are re-indexed now and then too)
+  async journal(issn, since) {
+    const month = day(new Date(new Date(since) - 30 * 86400e3));
+    const found = await getJSON(ext(`https://api.crossref.org/journals/${encodeURIComponent(issn.trim())}/works?rows=${MAX_NEW}&sort=created&order=desc&filter=from-index-date:${since},from-created-date:${month}&select=DOI,title,author,container-title,published,abstract,type`));
+    return ((found.message || {}).items || []).filter(w => (w.title || [])[0] && !/^title pending$/i.test(w.title[0].trim())).map(w => ({
+      itemType: "journalArticle", title: strip(w.title[0]),
+      creators: (w.author || []).map(a => person(a.family, a.given) || (a.name ? { creatorType: "author", name: a.name } : null)).filter(Boolean),
+      abstractNote: strip(w.abstract), publicationTitle: (w["container-title"] || [])[0] || "",
+      date: ((w.published || {})["date-parts"] || [[]])[0].join("-"), DOI: w.DOI || "",
+    }));
+  },
+
+  async feed(url, since) {
+    const doc = new DOMParser().parseFromString(await getFeed(url), "text/xml");
+    if (doc.querySelector("parsererror")) throw new Error("not an RSS or Atom feed");
+    const field = (el, ...names) => {
+      for (const n of names) {
+        const hit = [...el.children].find(c => c.localName === n || c.nodeName === n);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    const channel = doc.querySelector("channel > title, feed > title");
+    const journal = channel ? channel.textContent.trim() : "";
+    return [...doc.querySelectorAll("item, entry")].map(it => {
+      const link = field(it, "link");
+      const href = link ? (link.getAttribute("href") || link.textContent).trim() : "";
+      const when = (field(it, "pubDate", "dc:date", "date", "published", "updated") || {}).textContent || "";
+      const doiText = ((field(it, "prism:doi", "doi") || field(it, "dc:identifier", "identifier") || {}).textContent || "") + " " + href;
+      const doi = (doiText.match(/10\.\d{4,9}\/[^\s"<>]+/) || [""])[0].replace(/[.,;)]+$/, "");
+      const authors = [...it.children].filter(c => c.localName === "creator" || c.localName === "author")
+        .map(c => (c.querySelector("name") || c).textContent.trim()).filter(Boolean)
+        .flatMap(s => s.split(/\s*[,;]\s*(?=\S+\s+\S)|\s+and\s+/)).slice(0, 30)
+        .map(n => { const p = n.trim().split(/\s+/); return p.length > 1 ? person(p.pop(), p.join(" ")) : { creatorType: "author", name: n }; });
+      const date = when && !isNaN(Date.parse(when)) ? day(new Date(when)) : "";
+      return { itemType: "journalArticle", title: strip((field(it, "title") || {}).textContent), creators: authors,
+               abstractNote: strip((field(it, "description", "summary", "content", "content:encoded", "encoded") || {}).textContent),
+               publicationTitle: journal, date, DOI: doi, url: href, _date: date };
+    }).filter(c => c.title && (!c._date || c._date >= since)).map(({ _date, ...c }) => c);
+  },
+};
+
+// the sources and their note: {note: {key, version} | null, list: [{id, type, query, queue, last}]}
+async function loadSources() {
+  const notes = await (await api("GET", userPath(`/items?tag=${encodeURIComponent(SOURCES_TAG)}&itemType=note&limit=5`))).json();
+  const note = notes.find(n => !n.data.deleted);
+  let list = [];
+  if (note) {
+    try { list = JSON.parse(new DOMParser().parseFromString(note.data.note, "text/html").querySelector("pre").textContent).sources || []; }
+    catch (e) { /* unreadable: start again */ }
+  }
+  state.sources = { note: note ? { key: note.key, version: note.version } : null, list };
+  return state.sources;
+}
+
+async function saveSources() {
+  const html = `<h1>Watch Review: sources</h1>\n<p>The searches and feeds Watch Review reads new items from – change them in its settings.</p>\n`
+    + `<pre>${esc(JSON.stringify({ sources: state.sources.list }, null, 1))}</pre>`;
+  const s = state.sources;
+  if (!s.note) {
+    const res = await (await api("POST", userPath("/items"), [{ itemType: "note", note: html, tags: [{ tag: SOURCES_TAG }] }])).json();
+    const made = (res.successful || {})["0"];
+    if (!made) throw new Error("Zotero didn't save the sources");
+    s.note = { key: made.key, version: made.version };
+    return;
+  }
+  try {
+    const res = await api("PATCH", userPath(`/items/${s.note.key}`), { note: html }, s.note.version);
+    s.note.version = Number(res.headers.get("Last-Modified-Version")) || s.note.version;
+  } catch (e) {
+    if (e.status !== 412) throw e;
+    const fresh = await (await api("GET", userPath(`/items/${s.note.key}`))).json(); // another device wrote it: ours wins
+    s.note.version = fresh.version;
+    const res = await api("PATCH", userPath(`/items/${s.note.key}`), { note: html }, s.note.version);
+    s.note.version = Number(res.headers.get("Last-Modified-Version")) || s.note.version;
+  }
+}
+
+// already in the library (or in its trash, if you rejected it): by DOI, else by title
+async function inLibrary(c) {
+  const q = c.DOI || c.title;
+  const hits = await (await api("GET", userPath(`/items/top?q=${encodeURIComponent(q)}&qmode=${c.DOI ? "everything" : "titleCreatorYear"}&includeTrashed=1&limit=10`))).json();
+  return hits.some(h => c.DOI ? (h.data.DOI || "").toLowerCase() === c.DOI.toLowerCase() : normTitle(h.data.title) === normTitle(c.title));
+}
+
+// reads the sources that are due (all, if force) and puts their new items in the queue; returns how many
+async function checkSources(force, say) {
+  if (!state.sources) await loadSources();
+  const now = new Date();
+  const due = state.sources.list.filter(s => force || !s.last || now - new Date(s.last) > EVERY_HOURS * 3600e3);
+  if (!due.length) return { added: 0, errors: [] };
+  let added = 0;
+  const errors = [], seen = new Set();
+  for (const s of due) {
+    const queue = state.watch.find(w => w.key === s.queue) || state.watch[0];
+    if (!queue) { errors.push(`${sourceName(s)}: no “${cfg.queue}” collection to put new items in`); continue; }
+    say && say(`Reading ${sourceName(s)}…`);
+    try {
+      const since = s.last ? day(new Date(new Date(s.last) - 86400e3)) : day(new Date(now - FIRST_DAYS * 86400e3));
+      const fresh = [];
+      for (const c of await FETCH[s.type](s.query, since)) {
+        const id = (c.DOI || normTitle(c.title)).toLowerCase();
+        if (!c.title || seen.has(id)) continue;
+        seen.add(id);
+        if (!(await inLibrary(c))) fresh.push(c);
+      }
+      for (let i = 0; i < fresh.length; i += 50) {
+        const items = fresh.slice(i, i + 50).map(({ pmid, ...c }) => Object.assign(c, {
+          url: c.url || (c.DOI ? `https://doi.org/${c.DOI}` : pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : ""),
+          extra: [pmid ? `PMID: ${pmid}` : "", `Watch Review: ${sourceName(s)}`].filter(Boolean).join("\n"),
+          collections: [queue.key], tags: cfg.queueTag ? [{ tag: cfg.queueTag }] : [],
+        }));
+        const res = await (await api("POST", userPath("/items"), items)).json();
+        added += Object.keys(res.successful || {}).length;
+        if (Object.keys(res.failed || {}).length) errors.push(`${sourceName(s)}: Zotero refused ${Object.keys(res.failed).length} item(s)`);
+      }
+      s.last = now.toISOString();
+    } catch (e) {
+      errors.push(`${sourceName(s)}: ${e.message}`);
+    }
+  }
+  await saveSources();
+  return { added, errors };
+}
+
+function sourceName(s) {
+  const q = s.type === "feed" ? (() => { try { return new URL(s.query).host; } catch (e) { return s.query; } })() : s.query;
+  return `${SOURCE_TYPES[s.type].label.split(" – ")[0].replace(/ \(.*\)$/, "")}: ${q.length > 40 ? q.slice(0, 40) + "…" : q}`;
+}
+
+// one thing at a time with the sources (reading them, adding or removing one): else one would undo the other
+let sourcesLock = Promise.resolve();
+function serially(fn) {
+  const run = sourcesLock.then(fn, fn);
+  sourcesLock = run.catch(() => {});
+  return run;
+}
+
+// when the app opens: due sources are read after the queue is shown, and the queue is loaded again if they added any
+let checking = false;
+function checkSourcesInBackground() {
+  if (checking || !state.watch.length) return;
+  checking = true;
+  return serially(checkSourcesNowInBackground);
+}
+async function checkSourcesNowInBackground() {
+  try {
+    await loadSources(); // another device may have changed them or read them meanwhile
+    const { added, errors } = await checkSources(false, t => setStatus(t));
+    setStatus("");
+    if (errors.length) toast(errors[0], false);
+    if (added) { toast(`${added} new item${added === 1 ? "" : "s"} from your sources`, false); await load(true); }
+  } catch (e) {
+    setStatus("");
+    toast(`Sources: ${e.message}`, false);
+  } finally {
+    checking = false;
+  }
+}
+
+function setStatus(text) {
+  const el = document.getElementById("status");
+  el.textContent = text;
+  el.hidden = !text;
+}
+
 // ---------------------------------------------------------------- loading
 
-async function load() {
+async function load(skipSources) {
   if (!state.key || !state.userID) { openSettings(true); render(); return; }
   const showing = current() && current().key; // back from a link: stay on the same item
   setMain(`<div class="notice">Loading…</div>`);
@@ -382,6 +667,7 @@ async function load() {
     state.projects = await projectList();
     state.index = Math.max(0, visible().findIndex(i => i.key === showing));
     render();
+    if (!skipSources) checkSourcesInBackground();
   } catch (e) {
     setMain(`<div class="notice error">${esc(e.message)}</div>`);
     renderFields(); setActions(false);
@@ -873,7 +1159,7 @@ function readSetup() {
   return { preset: document.getElementById("set-preset").value, queue: v("set-queue"), queueTag: v("set-queue-tag"),
            readingTags: v("set-reading").split(",").map(t => t.trim()).filter(Boolean), keepTo: v("set-keep"),
            doneTag: v("set-done"), rejectPrefix: document.getElementById("set-reject-prefix").value,
-           reasons: reasons.length ? reasons : [["No reason", ""]], noteTag: v("set-note-tag") };
+           reasons: reasons.length ? reasons : [["No reason", ""]], noteTag: v("set-note-tag"), feedProxy: v("set-proxy") };
 }
 
 function openSettings(first) {
@@ -886,7 +1172,70 @@ function openSettings(first) {
   preset.onchange = () => { if (PRESETS[preset.value]) showSetup(PRESETS[preset.value]); };
   for (const id of SETTING_FIELDS) document.getElementById(id).oninput = () => { preset.value = "custom"; };
   showSetup(cfg);
+  document.getElementById("set-proxy").value = cfg.feedProxy || "";
   openSheet("sheet-settings");
+  showSources();
+}
+
+// the sources part of the settings
+async function showSources(message) {
+  const list = document.getElementById("src-list"), status = document.getElementById("src-status");
+  const type = document.getElementById("src-type"), query = document.getElementById("src-query");
+  const queue = document.getElementById("src-queue");
+  if (!type.options.length) {
+    type.innerHTML = Object.entries(SOURCE_TYPES).map(([id, t]) => `<option value="${id}">${esc(t.label)}</option>`).join("");
+    type.onchange = () => { query.placeholder = SOURCE_TYPES[type.value].placeholder; };
+    type.onchange();
+  }
+  queue.innerHTML = state.watch.map(w => `<option value="${w.key}">${esc(w.topName ? `${w.topName} / ${cfg.queue}` : cfg.queue)}</option>`).join("");
+  document.getElementById("src-queue-field").hidden = state.watch.length < 2;
+  status.textContent = message || "";
+  if (!state.key || !state.userID) { list.innerHTML = `<p class="hint">Add your key first.</p>`; return; }
+  try {
+    if (!state.sources) await loadSources();
+  } catch (e) { list.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return; }
+  list.innerHTML = state.sources.list.map((src, n) => {
+    const into = state.watch.find(w => w.key === src.queue);
+    const when = src.last ? `read ${src.last.slice(0, 16).replace("T", " ")}` : "not read yet";
+    return `<div class="srcrow"><span>${esc(sourceName(src))}<small>${esc(into && into.topName ? `into ${into.topName} · ` : "")}${esc(when)}</small></span>
+      <button data-remove="${n}" aria-label="Remove">×</button></div>`;
+  }).join("") || `<p class="hint">No sources yet.</p>`;
+  list.onclick = e => {
+    const b = e.target.closest("[data-remove]"); if (!b) return;
+    const gone = state.sources.list[Number(b.dataset.remove)];
+    serially(async () => {
+      state.sources.list = state.sources.list.filter(x => x !== gone);
+      try { await saveSources(); showSources("Removed."); } catch (err) { showSources(err.message); }
+    });
+  };
+}
+
+async function addSource() {
+  const type = document.getElementById("src-type").value, query = document.getElementById("src-query").value.trim();
+  if (!query) { showSources("Write the search, ISSN or feed address first."); return; }
+  if (type === "journal" && !/^\d{4}-?\d{3}[\dXx]$/.test(query)) { showSources("An ISSN looks like 1467-9744."); return; }
+  if (type === "feed" && !/^https?:\/\//.test(query)) { showSources("A feed address starts with https://"); return; }
+  if (!state.watch.length) { showSources(`Make the collection “${cfg.queue}” in Zotero first.`); return; }
+  const queue = document.getElementById("src-queue").value || state.watch[0].key;
+  document.getElementById("src-query").value = "";
+  return serially(async () => {
+    try {
+      await loadSources();
+      state.sources.list.push({ id: Date.now().toString(36), type, query, queue });
+      await saveSources();
+      await readSourcesNowSerially("Added – reading it…");
+    } catch (e) { showSources(e.message); }
+  });
+}
+
+function readSourcesNow() { return serially(() => readSourcesNowSerially()); }
+async function readSourcesNowSerially(first) {
+  showSources(first || "Reading…");
+  try {
+    const { added, errors } = await checkSources(!first, t => { document.getElementById("src-status").textContent = t; });
+    await showSources([`${added} new item${added === 1 ? "" : "s"}.`, ...errors].join(" "));
+    if (added) load(true);
+  } catch (e) { showSources(e.message); }
 }
 
 async function saveSettings() {
@@ -902,7 +1251,7 @@ async function saveSettings() {
     const userID = key === state.key && state.userID ? state.userID : await checkKey(key);
     state.key = key; state.userID = userID;
     store.set("key", key); store.set("userID", userID);
-    if (PRESETS[setup.preset]) Object.assign(setup, PRESETS[setup.preset], { preset: setup.preset });
+    if (PRESETS[setup.preset]) Object.assign(setup, PRESETS[setup.preset], { preset: setup.preset, feedProxy: setup.feedProxy });
     delete setup.label;
     Object.assign(cfg, setup);
     store.set("config", JSON.stringify(setup));
@@ -936,6 +1285,8 @@ document.getElementById("note-save").onclick = () => saveNote(document.getElemen
 document.getElementById("refresh").onclick = () => { state.notes.clear(); load(); };
 document.getElementById("open-settings").onclick = () => openSettings(false);
 document.getElementById("set-save").onclick = saveSettings;
+document.getElementById("src-add").onclick = addSource;
+document.getElementById("src-check").onclick = () => readSourcesNow();
 document.getElementById("toast-undo").onclick = undo;
 document.getElementById("scrim").onclick = closeSheets;
 for (const b of document.querySelectorAll("[data-close]")) b.onclick = closeSheets;

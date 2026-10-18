@@ -4,6 +4,7 @@
 
 Serves the app's files too. GET /_state shows the items as they are now; GET /_bump/<key> changes an item's
 version, as a sync from another computer would (the app's next change to it then meets a conflict).
+With ?mocksources=1 the app's sources (PubMed, Europe PMC, Crossref, feeds) are answered here too, under /ext/.
 """
 
 import json
@@ -70,6 +71,37 @@ project_list = {"key": "PLST", "version": 5, "itemType": "note", "tags": [{"tag"
                         "<li>F – 2605. Metylering i barntumörer</li>\n<li>T – 2610. Artikel - Försyn, slump och mutation</li>\n"
                         "<li>M – Riktlinjer sarkom</li>\n</ul>"}
 own_notes = {}  # notes made in the app
+
+# the sources, as the app reads them (under /ext/<host>/…)
+PUBMED_XML = """<?xml version="1.0"?><PubmedArticleSet>
+<PubmedArticle><MedlineCitation><PMID>111</PMID><Article><Journal><Title>Pediatric Blood &amp; Cancer</Title>
+<JournalIssue><PubDate><Year>2026</Year><Month>Oct</Month></PubDate></JournalIssue></Journal>
+<ArticleTitle>Relapse patterns in Wilms tumour.</ArticleTitle>
+<Abstract><AbstractText Label="BACKGROUND">Relapses are rare.</AbstractText><AbstractText Label="RESULTS">Few.</AbstractText></Abstract>
+<AuthorList><Author><LastName>Lind</LastName><ForeName>Eva</ForeName></Author><Author><CollectiveName>SIOP RTSG</CollectiveName></Author></AuthorList>
+</Article></MedlineCitation><PubmedData><ArticleIdList><ArticleId IdType="doi">10.1002/pbc.11111</ArticleId></ArticleIdList></PubmedData></PubmedArticle>
+<PubmedArticle><MedlineCitation><PMID>112</PMID><Article><Journal><Title>Nature</Title>
+<JournalIssue><PubDate><Year>2020</Year></PubDate></JournalIssue></Journal>
+<ArticleTitle>Array programming with NumPy</ArticleTitle>
+<AuthorList><Author><LastName>Harris</LastName><ForeName>C</ForeName></Author></AuthorList>
+</Article></MedlineCitation><PubmedData><ArticleIdList><ArticleId IdType="doi">10.1038/s41586-020-2649-2</ArticleId></ArticleIdList></PubmedData></PubmedArticle>
+</PubmedArticleSet>"""
+EUROPEPMC = {"resultList": {"result": [
+    {"source": "PPR", "title": "A <i>DICER1</i> preprint.", "abstractText": "<p>Preprint abstract.</p>",
+     "authorList": {"author": [{"firstName": "Ann", "lastName": "Ek"}]}, "bookOrReportDetails": {"publisher": "medRxiv"},
+     "firstPublicationDate": "2026-10-15", "doi": "10.1101/2026.10.15.1"},
+    {"source": "MED", "title": "Relapse patterns in Wilms tumour.", "doi": "10.1002/pbc.11111", "pmid": "111",
+     "journalInfo": {"journal": {"title": "Pediatric Blood & Cancer"}}, "firstPublicationDate": "2026-10-14"}]}}
+CROSSREF = {"message": {"items": [
+    {"DOI": "10.1111/zygo.99999", "title": ["Chance and <i>providence</i>"], "author": [{"given": "Tom", "family": "McLeish"}],
+     "container-title": ["Zygon"], "published": {"date-parts": [[2026, 10]]}, "abstract": "<jats:p>On chance.</jats:p>",
+     "type": "journal-article"}]}}
+FEED = """<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:prism="http://prismstandard.org/namespaces/basic/2.0/"><channel><title>Journal of Examples</title>
+<item><title>A new feed article</title><link>https://example.org/a1</link><description>&lt;p&gt;Feed abstract.&lt;/p&gt;</description>
+<dc:creator>Jane Q Doe, John Roe</dc:creator><pubDate>Thu, 15 Oct 2026 08:00:00 GMT</pubDate><prism:doi>10.9999/ex.1</prism:doi></item>
+<item><title>An old feed article</title><link>https://example.org/a0</link><pubDate>Mon, 01 Jan 2024 08:00:00 GMT</pubDate></item>
+</channel></rss>"""
 library_version = [100]
 
 
@@ -115,6 +147,19 @@ class Handler(BaseHTTPRequestHandler):
         if parts[:1] == ["_bump"]:
             items[parts[1]]["version"] += 1
             return self.send(200, {"version": items[parts[1]]["version"]})
+        if parts[:1] == ["ext"]:
+            host, path = parts[1], "/".join(parts[2:])
+            if host == "eutils.ncbi.nlm.nih.gov" and path.endswith("esearch.fcgi"):
+                return self.send(200, {"esearchresult": {"idlist": ["111", "112"]}})
+            if host == "eutils.ncbi.nlm.nih.gov" and path.endswith("efetch.fcgi"):
+                return self.raw(PUBMED_XML, "text/xml")
+            if host == "www.ebi.ac.uk":
+                return self.send(200, EUROPEPMC)
+            if host == "api.crossref.org":
+                return self.send(200, CROSSREF)
+            if host == "example.org" and path == "feed.xml":
+                return self.raw(FEED, "application/rss+xml")
+            return self.send(404, {"error": "no such source"})
         if parts[:2] == ["users", USER]:
             rest = parts[2:]
             if rest == ["collections"]:
@@ -130,14 +175,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, [wrap(n) for n in kids])
             if rest == ["items", "top"] and "q" in q:
                 words = q["q"][0].lower().split()
+                everything = q.get("qmode", [""])[0] == "everything"
+                trashed = q.get("includeTrashed", ["0"])[0] == "1"
                 rows = [i for i in list(items.values()) + list(library.values())
-                        if all(w in (i["title"] + " " + " ".join(c["lastName"] for c in i["creators"])).lower()
-                               for w in words)]
+                        if (trashed or not i.get("deleted"))
+                        and all(w in (i["title"] + " " + " ".join(c.get("lastName", c.get("name", "")) for c in i["creators"])
+                                      + (" " + i.get("DOI", "") if everything else "")).lower() for w in words)]
                 return self.page([wrap(i) for i in rows], q)
             if rest == ["items"] and q.get("tag", [""])[0] == "partitur-projekt":
                 return self.send(200, [wrap(project_list)])
+            if rest == ["items"] and "tag" in q:
+                tag = q["tag"][0]
+                return self.send(200, [wrap(n) for n in own_notes.values() if any(t["tag"] == tag for t in n.get("tags", []))])
             if len(rest) == 2 and rest[0] == "items":
-                return self.send(200, wrap(items[rest[1]]))
+                return self.send(200, wrap(items.get(rest[1]) or own_notes[rest[1]]))
             return self.send(404, {"error": "unknown"})
         # the app's own files
         name = url.path.lstrip("/") or "index.html"
@@ -153,6 +204,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def raw(self, text, kind):
+        data = text.encode()
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_POST(self):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if parts != ["users", USER, "items"]:
@@ -160,9 +220,14 @@ class Handler(BaseHTTPRequestHandler):
         made = {}
         for n, obj in enumerate(json.loads(self.rfile.read(int(self.headers["Content-Length"])))):
             library_version[0] += 1
-            key = f"NOTE{len(own_notes) + 1}"
-            own_notes[key] = dict(obj, key=key, version=library_version[0])
-            made[str(n)] = {"key": key, "version": library_version[0], "data": own_notes[key]}
+            if obj.get("itemType") == "note":
+                key = f"NOTE{len(own_notes) + 1}"
+                own_notes[key] = dict(obj, key=key, version=library_version[0])
+                made[str(n)] = {"key": key, "version": library_version[0], "data": own_notes[key]}
+            else:  # a new item from the sources
+                key = f"NEW{len(items) + 1}"
+                items[key] = dict(obj, key=key, version=library_version[0], dateAdded=f"2026-10-18T10:00:{n:02d}Z")
+                made[str(n)] = {"key": key, "version": library_version[0], "data": items[key]}
         self.send(200, {"successful": made, "success": {k: v["key"] for k, v in made.items()}, "failed": {}})
 
     def do_DELETE(self):
@@ -177,9 +242,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
-        if not (parts[:3] == ["users", USER, "items"] and len(parts) == 4 and parts[3] in items):
+        if not (parts[:3] == ["users", USER, "items"] and len(parts) == 4 and (parts[3] in items or parts[3] in own_notes)):
             return self.send(404, {"error": "unknown"})
-        item = items[parts[3]]
+        item = items.get(parts[3]) or own_notes[parts[3]]
         if int(self.headers.get("If-Unmodified-Since-Version", "-1")) != item["version"]:
             return self.send(412)
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
