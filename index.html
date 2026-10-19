@@ -253,6 +253,11 @@
   <label class="field">Reading tags <span class="hint">(comma between)</span>
     <input id="set-reading" autocomplete="off" spellcheck="false" placeholder="to-read">
   </label>
+  <label class="field">Library link for full text <span class="hint">(optional)</span>
+    <input id="set-library" autocomplete="off" spellcheck="false" placeholder="https://ludwig.lub.lu.se/login?qurl=%u">
+  </label>
+  <p class="hint">Your library’s proxy address (EZproxy and the like) with %u where the article’s address goes. Each item then
+    has a link “Full text via library” – the publisher’s page through your library’s subscriptions (you log in there).</p>
   <h4>Sources</h4>
   <p class="hint">Searches and feeds whose new items are put in the collection when the app opens (every
     6 hours) – nothing already in your library or its trash. They are kept in a Zotero note, so all your
@@ -321,8 +326,23 @@ const cfg = (() => {
   return { queue: (own && saved.queue) || (partitur ? "Bevakning" : "To review"),
            readingTags: (own && saved.readingTags && saved.readingTags.length && saved.readingTags)
                         || (partitur ? PARTITUR_READING : ["to-read"]),
-           feedProxy: (saved && saved.feedProxy) || "" };
+           feedProxy: (saved && saved.feedProxy) || "", libraryLink: (saved && saved.libraryLink) || "" };
 })();
+// a library login address (…login?qurl=%u) set as the feed proxy before there was a place for it: it is a library link
+if (/%u|login\?(q)?url=/i.test(cfg.feedProxy) && !cfg.libraryLink) {
+  cfg.libraryLink = cfg.feedProxy;
+  cfg.feedProxy = "";
+  store.set("config", JSON.stringify(cfg));
+}
+
+// the publisher's page for an item through the library's proxy, or ""
+function libraryUrl(d) {
+  if (!cfg.libraryLink) return "";
+  const target = d.DOI ? `https://doi.org/${d.DOI}` : d.url || "";
+  if (!target) return "";
+  return cfg.libraryLink.includes("%u") ? cfg.libraryLink.replace("%u", encodeURIComponent(target))
+                                         : cfg.libraryLink + encodeURIComponent(target);
+}
 
 const state = {
   key: store.get("key"), userID: store.get("userID"),
@@ -891,6 +911,7 @@ function render() {
       <div class="links" id="links">
         ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">DOI</a>` : ""}
         ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Web page</a>` : ""}
+        ${libraryUrl(d) ? `<a href="${esc(libraryUrl(d))}" target="_blank" rel="noopener">Full text via library</a>` : ""}
         <a href="https://www.google.com/search?q=${encodeURIComponent(d.title || "")}" target="_blank" rel="noopener">Search</a>
       </div>
     </article>
@@ -959,7 +980,8 @@ function renderList(list) {
           <h3>${esc(d.title)}</h3>
           <div class="rmeta"><span class="badge">${esc(item.watch.label)}</span>${rel[relevance(item)]}
             ${authors(d) ? `<span>${esc(authors(d))}</span>` : ""}${source ? `<span>${esc(source)}</span>` : ""}
-            ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">${d.DOI ? "DOI" : "Web page"}</a>` : ""}</div>
+            ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">${d.DOI ? "DOI" : "Web page"}</a>` : ""}
+            ${libraryUrl(d) ? `<a href="${esc(libraryUrl(d))}" target="_blank" rel="noopener">Full text via library</a>` : ""}</div>
           ${whyText ? `<p class="rwhy">${esc(whyText)}</p>` : ""}
           ${d.abstractNote ? `<details><summary>Abstract</summary><div class="abstract">${esc(d.abstractNote)}</div></details>` : ""}
         </div>
@@ -1267,6 +1289,7 @@ function openSettings(first) {
   document.getElementById("set-status").textContent = first ? "Add your Zotero API key to start." : "";
   document.getElementById("set-queue").value = cfg.queue;
   document.getElementById("set-reading").value = cfg.readingTags.join(", ");
+  document.getElementById("set-library").value = cfg.libraryLink || "";
   document.getElementById("set-proxy").value = cfg.feedProxy || "";
   openSheet("sheet-settings");
   showSources();
@@ -1339,8 +1362,13 @@ async function saveSettings() {
   if (!key) { status.textContent = "Paste the key first."; return; }
   const v = id => document.getElementById(id).value.trim();
   const setup = { queue: v("set-queue") || "To review", readingTags: v("set-reading").split(",").map(t => t.trim()).filter(Boolean),
-                  feedProxy: v("set-proxy") };
+                  feedProxy: v("set-proxy"), libraryLink: v("set-library") };
   if (!setup.readingTags.length) setup.readingTags = ["to-read"];
+  if (setup.libraryLink && !/^https?:\/\//.test(setup.libraryLink)) { status.textContent = "The library link starts with https://"; return; }
+  if (/%u|login\?(q)?url=/i.test(setup.feedProxy)) {
+    status.textContent = "That is a library login address – put it under “Library link for full text”, not as the feed proxy.";
+    return;
+  }
   status.textContent = "Checking…";
   try {
     const userID = key === state.key && state.userID ? state.userID : await checkKey(key);

@@ -39,6 +39,8 @@ You see the title, authors, journal, date and abstract, and:
 - **Already in your library** / **related** – the same work (by title), or works by the same first authors that
   you already have (Zotero's quick search).
 - **Open PDF** – when OpenAlex knows a free full text for the DOI.
+- **Full text via library** – if you give your library's proxy address in Settings (EZproxy and the like, e.g.
+  `https://ludwig.lub.lu.se/login?qurl=%u`): the publisher's page through your library's subscriptions.
 - **✎ Note** – a short note (typed or dictated), saved as a child note of the item in Zotero.
 
 And you choose:
@@ -64,6 +66,7 @@ message right after, or the undo arrow at the top, as many steps back as you lik
   under a parent collection, the parent's first word labels it and you can filter by it (e.g. *F – Research / To
   review* and *T – Theology / To review*).
 - **Reading tags** – the tags Read offers (`to-read` unless you name others).
+- **Library link for full text** – your library's proxy address with `%u` where the article's address goes.
 - **Sources** and a **feed proxy** – above.
 
 ## With other tools
