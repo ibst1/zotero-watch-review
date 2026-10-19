@@ -25,6 +25,13 @@ library – or in its trash, so what you rejected doesn't come back – is added
 The sources are kept in a Zotero note (tag `watch-review-sources`), so all your devices share them and know when they
 were last read. Nothing is filtered by relevance: you get what the search finds, and decide in the app.
 
+## Cards or a list
+
+On the phone the items come one at a time, as cards. On a big screen (and whenever you switch with the button at the
+top) they come as a **list**: title, relevance, Claude's reason and the abstract (folded) for each, with its own Read,
+Keep and Reject – or tick several and read, keep or reject them together (one Undo takes them all back). *Card* opens
+an item as a card, with everything below.
+
 ## Each item
 
 You see the title, authors, journal, date and abstract, and:

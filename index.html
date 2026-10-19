@@ -48,6 +48,34 @@
   .chip { border: 1px solid var(--line); background: var(--chip); border-radius: 999px; padding: 5px 12px;
     font-size: 14px; white-space: nowrap; cursor: pointer; }
   .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  body.list main { max-width: 1100px; padding-bottom: calc(env(safe-area-inset-bottom) + 24px); }
+  body.list .actions { display: none; }
+  body.list #view-list, body:not(.list) #view-cards { display: none; }
+  .bulk { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    background: var(--bg); padding: 8px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .bulk label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); flex: 1; min-width: 140px; }
+  .bulk button, .rowacts button { border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 600; cursor: pointer; color: #fff; }
+  .bulk button:disabled { opacity: .35; cursor: default; }
+  .b-read { background: var(--read); } .b-keep { background: var(--keep); } .b-reject { background: var(--reject); }
+  .b-open { background: var(--chip) !important; color: var(--text) !important; font-weight: 500 !important; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .rows { display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .row.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .row h3 { font-size: 16px; line-height: 1.3; margin: 0 0 3px; }
+  .row .rmeta { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .row .rmeta .rel { margin-left: 0; }
+  .row .rwhy { font-size: 14px; margin: 6px 0 0; }
+  .row details { font-size: 14px; margin-top: 6px; }
+  .row details summary { cursor: pointer; color: var(--accent); }
+  .row details .abstract { margin-top: 6px; }
+  .rowacts { display: flex; flex-direction: column; gap: 6px; }
+  @media (max-width: 640px) {
+    .row { grid-template-columns: auto 1fr; }
+    .rowacts { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+    .rowacts button { flex: 1; }
+  }
   .status { padding: 8px 16px 0; font-size: 13px; color: var(--muted); }
   .srcrow { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
     margin: 6px 0; font-size: 14px; }
@@ -147,6 +175,10 @@
 <body>
 <header>
   <h1 id="title">Watch Review</h1>
+  <button class="icon-btn" id="view" aria-label="List or cards" title="List or cards">
+    <svg id="view-list" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    <svg id="view-cards" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
+  </button>
   <button class="icon-btn" id="undo" aria-label="Undo the last change" title="Undo" disabled>
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg><span class="count" id="undo-count"></span>
   </button>
@@ -299,7 +331,10 @@ const state = {
   queue: [],            // items to go through, oldest first
   field: store.get("field") || "all",
   index: 0, notes: new Map(), myNotes: new Map(), busy: false, openAccess: new Map(), related: new Map(),
-  history: [],          // [{label, item, revert}] – every change this session, the newest last (Undo takes them back)
+  history: [],          // [{label, items, revert}] – every change this session, the newest last (Undo takes them back)
+  view: store.get("view") || (matchMedia("(min-width: 900px)").matches ? "list" : "cards"), // a list on a big screen
+  selected: new Set(),  // the list's ticked items (keys)
+  targets: null,        // the items a Read or Reject sheet is for (null: the card's item)
   projects: null,       // ["F – 2610. Artikel - X", …] from Partitur's note; null: not written yet
   sources: null,        // {note, list} – see loadSources
 };
@@ -764,7 +799,7 @@ async function saveNote(text) {
     if (!made) throw new Error("Zotero didn't save the note: " + JSON.stringify(res.failed || res).slice(0, 150));
     const mine = { key: made.key, version: made.version, note: html };
     state.myNotes.set(item.key, [...(state.myNotes.get(item.key) || []), mine]);
-    state.history.push({ label: "Note", item, revert: async () => {
+    state.history.push({ label: "Note", items: [item], revert: async () => {
       await api("DELETE", userPath(`/items/${mine.key}`), undefined, mine.version);
       state.myNotes.set(item.key, (state.myNotes.get(item.key) || []).filter(n => n.key !== mine.key));
     } });
@@ -823,10 +858,13 @@ function authors(d) {
 
 function render() {
   renderFields();
+  document.body.classList.toggle("list", state.view === "list");
   const list = visible();
   if (!state.key) { setMain(`<div class="notice">Add your Zotero API key in Settings.</div>`); setActions(false); return; }
   if (!state.watch.length) { setMain(`<div class="empty">No collection called “${esc(cfg.queue)}” in your library – make one in Zotero, or pick another in Settings.</div>`); setActions(false); return; }
   if (!list.length) { setMain(`<div class="empty">Nothing left to go through. 🎉</div>`); setActions(false); return; }
+  if (state.view === "list") { renderList(list); return; }
+  document.getElementById("main").onclick = null; // the list's
   if (state.index >= list.length) state.index = 0;
   const item = list[state.index], d = item.data;
   const type = { journalArticle: "Article", preprint: "Preprint", book: "Book", bookSection: "Chapter" }[d.itemType] || d.itemType;
@@ -897,6 +935,70 @@ function render() {
   }).catch(() => {});
 }
 
+// several items at a glance: tick some (or use a row's own buttons) and read, keep or reject them together
+function renderList(list) {
+  for (const k of [...state.selected]) if (!list.some(i => i.key === k)) state.selected.delete(k);
+  const n = state.selected.size;
+  const rel = ["<span class=\"rel high\">High</span>", "<span class=\"rel\">Medium</span>", "<span class=\"rel low\">Low</span>", ""];
+  setMain(`
+    <div class="bulk">
+      <label><input type="checkbox" id="sel-all" ${n && n === list.length ? "checked" : ""}>
+        <span>${n ? `${n} of ${list.length} selected` : `${list.length} to go through – select all`}</span></label>
+      <button class="b-read" data-bulk="read" ${n ? "" : "disabled"}>Read…</button>
+      <button class="b-keep" data-bulk="keep" ${n ? "" : "disabled"}>Keep</button>
+      <button class="b-reject" data-bulk="reject" ${n ? "" : "disabled"}>Reject…</button>
+    </div>
+    <div class="rows">${list.map(item => {
+      const d = item.data, why = state.notes.get(item.key);
+      const whyText = why ? new DOMParser().parseFromString(why, "text/html").querySelector("p")?.textContent || "" : "";
+      const source = [d.publicationTitle || d.repository || d.publisher || d.bookTitle, (d.date || "").slice(0, 4)].filter(Boolean).join(" · ");
+      const doi = d.DOI ? `https://doi.org/${encodeURIComponent(d.DOI).replace(/%2F/g, "/")}` : (d.url || "");
+      return `<div class="row ${state.selected.has(item.key) ? "sel" : ""}" data-key="${item.key}">
+        <input type="checkbox" data-pick="${item.key}" ${state.selected.has(item.key) ? "checked" : ""} aria-label="Select">
+        <div>
+          <h3>${esc(d.title)}</h3>
+          <div class="rmeta"><span class="badge">${esc(item.watch.label)}</span>${rel[relevance(item)]}
+            ${authors(d) ? `<span>${esc(authors(d))}</span>` : ""}${source ? `<span>${esc(source)}</span>` : ""}
+            ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">${d.DOI ? "DOI" : "Web page"}</a>` : ""}</div>
+          ${whyText ? `<p class="rwhy">${esc(whyText)}</p>` : ""}
+          ${d.abstractNote ? `<details><summary>Abstract</summary><div class="abstract">${esc(d.abstractNote)}</div></details>` : ""}
+        </div>
+        <div class="rowacts">
+          <button class="b-read" data-one="read">Read…</button><button class="b-keep" data-one="keep">Keep</button>
+          <button class="b-reject" data-one="reject">Reject…</button><button class="b-open" data-one="open">Card</button>
+        </div>
+      </div>`;
+    }).join("")}</div>`);
+  setActions(false);
+  const main = document.getElementById("main");
+  main.onclick = e => {
+    const pick = e.target.closest("[data-pick]");
+    if (pick) { pick.checked ? state.selected.add(pick.dataset.pick) : state.selected.delete(pick.dataset.pick); render(); return; }
+    const all = e.target.closest("#sel-all");
+    if (all) { state.selected = all.checked ? new Set(list.map(i => i.key)) : new Set(); render(); return; }
+    const bulk = e.target.closest("[data-bulk]");
+    if (bulk) { doTo(list.filter(i => state.selected.has(i.key)), bulk.dataset.bulk); return; }
+    const one = e.target.closest("[data-one]");
+    if (one) {
+      const item = list.find(i => i.key === one.closest("[data-key]").dataset.key);
+      if (one.dataset.one === "open") { state.view = "cards"; state.index = list.indexOf(item); render(); window.scrollTo(0, 0); return; }
+      doTo([item], one.dataset.one);
+    }
+  };
+}
+
+// read, keep or reject these items (the sheet asks for the tag or the reason)
+function doTo(items, kind) {
+  if (!items.length) return;
+  state.targets = items;
+  if (kind === "read") openRead(); else if (kind === "reject") openReject(); else act("keep");
+}
+
+// the items a sheet or an action is for: those picked in the list, else the card's
+function targetItems() {
+  return state.targets && state.targets.length ? state.targets : current() ? [current()] : [];
+}
+
 // ---------------------------------------------------------------- actions
 
 function openSheet(id) {
@@ -904,6 +1006,7 @@ function openSheet(id) {
   document.getElementById(id).classList.add("open");
 }
 function closeSheets() {
+  state.targets = null;
   document.getElementById("scrim").classList.remove("open");
   for (const s of document.querySelectorAll(".sheet")) s.classList.remove("open");
 }
@@ -918,7 +1021,7 @@ function dayFromNow(n) {
 }
 
 function openRead() {
-  if (!current()) return;
+  if (!targetItems().length) return;
   // no date unless you pick one – then tap the reading tag
   let due = "";
   const dates = document.getElementById("read-dates"), picker = document.getElementById("read-date");
@@ -936,7 +1039,8 @@ function openRead() {
   picker.onchange = () => { due = picker.value; drawDates(); };
   drawDates();
   const last = cfg.readingTags.includes(store.get("readTag")) ? store.get("readTag") : cfg.readingTags[0];
-  document.getElementById("read-hint").textContent = `Tap the reading tag – after a date, if you want one. ${whereTo(current())}`;
+  const many = targetItems().length > 1 ? `${targetItems().length} items. ` : "";
+  document.getElementById("read-hint").textContent = `${many}Tap the reading tag – after a date, if you want one. ${whereTo(targetItems()[0])}`;
   const tags = document.getElementById("read-tags");
   tags.innerHTML = cfg.readingTags.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
   tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag, due); };
@@ -1058,10 +1162,11 @@ function swipeable(card) {
 }
 
 function openReject() {
-  if (!current()) return;
+  if (!targetItems().length) return;
   const box = document.getElementById("reject-reasons");
   document.getElementById("reject-hint").textContent =
-    `The reason is saved as a tag (${REJECT_PREFIX}…) – a tool that fills the collection can learn from it. The item goes to Zotero’s trash.`;
+    (targetItems().length > 1 ? `${targetItems().length} items. ` : "")
+    + `The reason is saved as a tag (${REJECT_PREFIX}…) – a tool that fills the collection can learn from it. The item goes to Zotero’s trash.`;
   box.innerHTML = REASONS.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
   box.onclick = e => { const b = e.target.closest("[data-reason]"); if (b) act("reject", b.dataset.reason); };
   openSheet("sheet-reject");
@@ -1072,40 +1177,52 @@ function snapshot(item) {
   return { collections: [...(item.data.collections || [])], tags: (item.data.tags || []).map(t => ({ ...t })) };
 }
 function itemChange(item, before, label) {
-  return { label, item, revert: () => patchItem(item, () => ({ collections: before.collections, tags: before.tags, deleted: 0 })) };
+  return { label, items: [item], revert: () => patchItem(item, () => ({ collections: before.collections, tags: before.tags, deleted: 0 })) };
 }
 
 // kind "read" (arg: the reading tag), "keep" or "reject" (arg: the reason, "" for none)
 async function act(kind, arg, due) {
-  const item = current(); if (!item || state.busy) return;
-  const before = snapshot(item);
+  const items = targetItems();
+  state.targets = null;
+  if (!items.length || state.busy) return;
+  const n = items.length, one = n === 1 ? items[0] : null;
   let build, message;
   if (kind === "read") {
     store.set("readTag", arg);
-    build = data => moveFields(item, data, arg, due);
-    message = `Tagged ${arg}` + (due ? `, to read by ${due}` : "");
+    build = item => data => moveFields(item, data, arg, due);
+    message = (one ? `Tagged ${arg}` : `${n} tagged ${arg}`) + (due ? `, to read by ${due}` : "");
   } else if (kind === "keep") {
-    build = data => moveFields(item, data, null);
-    message = item.watch.top ? `Kept – into ${item.watch.topName}` : `Kept – out of ${cfg.queue}`;
+    build = item => data => moveFields(item, data, null);
+    message = !one ? `${n} kept` : one.watch.top ? `Kept – into ${one.watch.topName}` : `Kept – out of ${cfg.queue}`;
   } else {
-    build = data => {
+    build = () => data => {
       const tags = (data.tags || []).filter(t => !t.tag.startsWith(REJECT_PREFIX));
       tags.push({ tag: REJECT_PREFIX + arg }); // just "rejected: " without a reason – rejected all the same
       return { tags, deleted: 1 };
     };
     const why = (REASONS.find(([, tag]) => tag === arg) || [""])[0];
-    message = arg ? `Rejected (${why.toLowerCase()}) – in the trash` : "Rejected – in the trash";
+    message = (one ? "Rejected" : `${n} rejected`) + (arg ? ` (${why.toLowerCase()})` : "") + " – in the trash";
   }
   closeSheets();
   state.busy = true; setActions(false);
+  const done = [];
   try {
-    await patchItem(item, build);
-    state.queue.splice(state.queue.indexOf(item), 1); // the next one moves up to the same place
-    state.history.push(itemChange(item, before, message));
-    toast(message, true);
+    for (const item of items) {
+      const before = snapshot(item);
+      await patchItem(item, build(item));
+      done.push({ item, before });
+      state.queue.splice(state.queue.indexOf(item), 1); // the next one moves up to the same place
+      state.selected.delete(item.key);
+    }
   } catch (e) {
-    toast(e.message, false);
+    toast(`${e.message}${done.length ? ` (${done.length} of ${n} done)` : ""}`, false);
   } finally {
+    if (done.length) {
+      state.history.push({ label: done.length === n ? message : `${message} (${done.length} of ${n})`, items: done.map(d => d.item),
+                           revert: async () => { for (const { item, before } of done) {
+                             await patchItem(item, () => ({ collections: before.collections, tags: before.tags, deleted: 0 })); } } });
+      if (done.length === n) toast(message, true);
+    }
     state.busy = false;
     render();
   }
@@ -1119,10 +1236,11 @@ async function undo() {
   try {
     await u.revert();
     state.history.pop();
-    if (!state.queue.includes(u.item)) state.queue.push(u.item);
+    const back = u.items || (u.item ? [u.item] : []);
+    for (const item of back) if (!state.queue.includes(item)) state.queue.push(item);
     sortQueue();
-    if (!visible().includes(u.item)) { state.field = "all"; store.set("field", ""); }
-    state.index = Math.max(0, visible().indexOf(u.item));
+    if (back.some(item => !visible().includes(item))) { state.field = "all"; store.set("field", ""); }
+    if (back.length) state.index = Math.max(0, visible().indexOf(back[0]));
     toast(`Undone: ${u.label}`, false);
   } catch (e) {
     toast(e.message, false);
@@ -1256,6 +1374,12 @@ function step(by) {
 document.getElementById("act-skip").onclick = () => step(1);
 document.getElementById("act-back").onclick = () => step(-1);
 document.getElementById("undo").onclick = undo;
+document.getElementById("view").onclick = () => {
+  state.view = state.view === "list" ? "cards" : "list";
+  store.set("view", state.view);
+  render();
+  window.scrollTo(0, 0);
+};
 document.getElementById("note-save").onclick = () => saveNote(document.getElementById("note-text").value);
 document.getElementById("refresh").onclick = () => { state.notes.clear(); load(); };
 document.getElementById("open-settings").onclick = () => openSettings(false);
