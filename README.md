@@ -47,6 +47,8 @@ And you choose:
 
 - **Read** – one tap on a reading tag (`to-read` by default; you can have several). If you want, pick a date first –
   today, tomorrow, in a week or any day – saved as the tag `due: <date>` (a tool making reading tasks can use it).
+  With a mouse each reading tag is a button of its own, one click, in the list and on the card; *Date…* then opens
+  the choice with a date.
 - **Keep** – kept in the library, nothing to read now.
 - **Reject** – with a reason (saved as a tag, e.g. `rejected: off topic`), to Zotero's trash (recoverable there).
 - **‹ / ›** – back to the one before, on to the next one (they stay).

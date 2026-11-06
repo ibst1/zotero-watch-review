@@ -76,6 +76,10 @@
     .rowacts { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
     .rowacts button { flex: 1; }
   }
+  /* with a mouse each reading tag is a button of its own, so there are more of them: they go in a line under the item */
+  body.readbtns .row { grid-template-columns: auto 1fr; }
+  body.readbtns .rowacts { grid-column: 2; flex-direction: row; flex-wrap: wrap; }
+  body.readbtns .rowacts .b-keep { margin-left: auto; }
   .status { padding: 8px 16px 0; font-size: 13px; color: var(--muted); }
   .srcrow { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
     margin: 6px 0; font-size: 14px; }
@@ -118,6 +122,11 @@
   .icon-btn:disabled { opacity: .35; }
   .icon-btn .count { font-size: 12px; font-weight: 700; margin-left: 2px; vertical-align: top; }
   .act:disabled { opacity: .45; }
+  #act-reads { display: contents; }
+  .act.date { background: var(--chip); color: var(--text); font-weight: 500; }
+  body.readbtns:not(.list) .actions { display: flex; flex-wrap: wrap; justify-content: center; }
+  body.readbtns .act:not(.skip):not(.back) { flex: 1 1 auto; padding: 13px 14px; }
+  body.readbtns:not(.list) main { padding-bottom: calc(env(safe-area-inset-bottom) + 160px); } /* the bar can wrap */
   .empty, .notice { text-align: center; color: var(--muted); padding: 48px 12px; }
   .notice.error { color: var(--reject); }
   /* sheets */
@@ -195,7 +204,7 @@
 
 <div class="actions" id="actions">
   <button class="act back" id="act-back" aria-label="Back to the previous item" title="Back">‹</button>
-  <button class="act read" id="act-read">Read</button>
+  <span id="act-reads"><button class="act read" data-read>Read</button></span>
   <button class="act keep" id="act-keep">Keep</button>
   <button class="act reject" id="act-reject">Reject</button>
   <button class="act skip" id="act-skip" aria-label="Skip to the next item" title="Skip">›</button>
@@ -854,6 +863,15 @@ function setActions(on) {
   undoBtn.title = n ? `Undo: ${state.history[n - 1].label}` : "Undo";
 }
 
+// Read: on the phone one button and a sheet; with a mouse there is room for a button per reading tag, one click each.
+// The date is then a button of its own, opening the sheet
+const mouse = matchMedia("(hover: hover) and (pointer: fine)");
+function readButtons(readClass, dateClass, attr) {
+  if (!mouse.matches) return `<button class="${readClass}" ${attr}>${readClass === "act read" ? "Read" : "Read…"}</button>`;
+  return cfg.readingTags.map(t => `<button class="${readClass}" ${attr} data-tag="${esc(t)}" title="Read: tag ${esc(t)}">${esc(t)}</button>`).join("")
+    + `<button class="${dateClass}" ${attr} title="Read, with a date">Date…</button>`;
+}
+
 // the note is Partitur's own HTML: only its paragraphs' text is shown
 function noteHTML(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -879,6 +897,8 @@ function authors(d) {
 function render() {
   renderFields();
   document.body.classList.toggle("list", state.view === "list");
+  document.body.classList.toggle("readbtns", mouse.matches);
+  document.getElementById("act-reads").innerHTML = readButtons("act read", "act date", "data-read");
   const list = visible();
   if (!state.key) { setMain(`<div class="notice">Add your Zotero API key in Settings.</div>`); setActions(false); return; }
   if (!state.watch.length) { setMain(`<div class="empty">No collection called “${esc(cfg.queue)}” in your library – make one in Zotero, or pick another in Settings.</div>`); setActions(false); return; }
@@ -965,7 +985,7 @@ function renderList(list) {
     <div class="bulk">
       <label><input type="checkbox" id="sel-all" ${n && n === list.length ? "checked" : ""}>
         <span>${n ? `${n} of ${list.length} selected` : `${list.length} to go through – select all`}</span></label>
-      <button class="b-read" data-bulk="read" ${n ? "" : "disabled"}>Read…</button>
+      ${readButtons("b-read", "b-read b-open", `data-bulk="read" ${n ? "" : "disabled"}`)}
       <button class="b-keep" data-bulk="keep" ${n ? "" : "disabled"}>Keep</button>
       <button class="b-reject" data-bulk="reject" ${n ? "" : "disabled"}>Reject…</button>
     </div>
@@ -986,7 +1006,7 @@ function renderList(list) {
           ${d.abstractNote ? `<details><summary>Abstract</summary><div class="abstract">${esc(d.abstractNote)}</div></details>` : ""}
         </div>
         <div class="rowacts">
-          <button class="b-read" data-one="read">Read…</button><button class="b-keep" data-one="keep">Keep</button>
+          ${readButtons("b-read", "b-read b-open", `data-one="read"`)}<button class="b-keep" data-one="keep">Keep</button>
           <button class="b-reject" data-one="reject">Reject…</button><button class="b-open" data-one="open">Card</button>
         </div>
       </div>`;
@@ -999,21 +1019,21 @@ function renderList(list) {
     const all = e.target.closest("#sel-all");
     if (all) { state.selected = all.checked ? new Set(list.map(i => i.key)) : new Set(); render(); return; }
     const bulk = e.target.closest("[data-bulk]");
-    if (bulk) { doTo(list.filter(i => state.selected.has(i.key)), bulk.dataset.bulk); return; }
+    if (bulk) { doTo(list.filter(i => state.selected.has(i.key)), bulk.dataset.bulk, bulk.dataset.tag); return; }
     const one = e.target.closest("[data-one]");
     if (one) {
       const item = list.find(i => i.key === one.closest("[data-key]").dataset.key);
       if (one.dataset.one === "open") { state.view = "cards"; state.index = list.indexOf(item); render(); window.scrollTo(0, 0); return; }
-      doTo([item], one.dataset.one);
+      doTo([item], one.dataset.one, one.dataset.tag);
     }
   };
 }
 
-// read, keep or reject these items (the sheet asks for the tag or the reason)
-function doTo(items, kind) {
+// read, keep or reject these items (the sheet asks for the tag, unless it was its own button, or the reason)
+function doTo(items, kind, tag) {
   if (!items.length) return;
   state.targets = items;
-  if (kind === "read") openRead(); else if (kind === "reject") openReject(); else act("keep");
+  if (kind === "read" && tag) act("read", tag); else if (kind === "read") openRead(); else if (kind === "reject") openReject(); else act("keep");
 }
 
 // the items a sheet or an action is for: those picked in the list, else the card's
@@ -1389,7 +1409,11 @@ async function saveSettings() {
 
 // ---------------------------------------------------------------- wiring
 
-document.getElementById("act-read").onclick = openRead;
+document.getElementById("act-reads").onclick = e => {
+  const b = e.target.closest("[data-read]"); if (!b) return;
+  if (b.dataset.tag) act("read", b.dataset.tag); else openRead();
+};
+mouse.addEventListener("change", render);
 document.getElementById("act-keep").onclick = () => act("keep");
 document.getElementById("act-reject").onclick = openReject;
 function step(by) {
