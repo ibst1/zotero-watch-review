@@ -59,6 +59,26 @@ it came from (`from: To review`); Reject puts it in Zotero's trash, tagged `reje
 for everyone, so a tool that fills the collection can learn from them. Every change can be undone: *Undo* in the
 message right after, or the undo arrow at the top, as many steps back as you like (this session).
 
+## Keyboard
+
+With a mouse and keyboard each button has a key, shown on the button or in its tooltip (not while you type):
+
+| Key | Button | Key | Button |
+| --- | --- | --- | --- |
+| `r` | the first reading tag | `2`–`9` | the next reading tags |
+| `d` | Date… | `k` | Keep |
+| `x` | Reject | `s` / `b` | Skip / Back |
+| `n` | ✎ Note | `p` | ＋ Project |
+| `a` | Show all (list: select all) | `u` | Undo |
+| `l` | List or cards | `f` | Refresh |
+| `,` | Settings | | |
+
+In the list the keys work on the items you have ticked.
+
+With a sheet open only its own keys work, and `Esc` closes it. **Read:** `n`, `t`, `m`, `w` and `d` pick no date, today,
+tomorrow, in a week or a date, then `r` or `2`–`9` the tag. **Reject:** `1`–`6` the reason. **Note:** `Ctrl+Enter` saves.
+**Project:** type to filter, then `Tab` and `Enter`.
+
 ## Settings (⚙)
 
 - **Zotero API key** – zotero.org → Settings → Security → *Create new private key*, with **Allow library access**

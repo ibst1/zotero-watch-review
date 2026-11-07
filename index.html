@@ -122,6 +122,10 @@
   .icon-btn:disabled { opacity: .35; }
   .icon-btn .count { font-size: 12px; font-weight: 700; margin-left: 2px; vertical-align: top; }
   .act:disabled { opacity: .45; }
+  /* the key that presses a button: shown where there is a keyboard, as the reading-tag buttons */
+  kbd { display: none; }
+  body.readbtns kbd { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(127,127,127,.28);
+    font: 600 11px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; vertical-align: 2px; }
   #act-reads { display: contents; }
   .act.date { background: var(--chip); color: var(--text); font-weight: 500; }
   body.readbtns:not(.list) .actions { display: flex; flex-wrap: wrap; justify-content: center; }
@@ -184,17 +188,17 @@
 <body>
 <header>
   <h1 id="title">Watch Review</h1>
-  <button class="icon-btn" id="view" aria-label="List or cards" title="List or cards">
+  <button class="icon-btn" id="view" data-shortcut="l" aria-label="List or cards" title="List or cards (l)">
     <svg id="view-list" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
     <svg id="view-cards" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
   </button>
-  <button class="icon-btn" id="undo" aria-label="Undo the last change" title="Undo" disabled>
+  <button class="icon-btn" id="undo" data-shortcut="u" aria-label="Undo the last change" title="Undo (u)" disabled>
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg><span class="count" id="undo-count"></span>
   </button>
-  <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">
+  <button class="icon-btn" id="refresh" data-shortcut="f" aria-label="Refresh" title="Refresh (f)">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
   </button>
-  <button class="icon-btn" id="open-settings" aria-label="Settings" title="Settings">
+  <button class="icon-btn" id="open-settings" data-shortcut="," aria-label="Settings" title="Settings (,)">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
 </header>
@@ -203,11 +207,11 @@
 <main id="main"><div class="notice">Loading…</div></main>
 
 <div class="actions" id="actions">
-  <button class="act back" id="act-back" aria-label="Back to the previous item" title="Back">‹</button>
+  <button class="act back" id="act-back" data-shortcut="b" aria-label="Back to the previous item" title="Back (b)">‹<kbd>b</kbd></button>
   <span id="act-reads"><button class="act read" data-read>Read</button></span>
-  <button class="act keep" id="act-keep">Keep</button>
-  <button class="act reject" id="act-reject">Reject</button>
-  <button class="act skip" id="act-skip" aria-label="Skip to the next item" title="Skip">›</button>
+  <button class="act keep" id="act-keep" data-shortcut="k" title="Keep (k)">Keep<kbd>k</kbd></button>
+  <button class="act reject" id="act-reject" data-shortcut="x" title="Reject (x)">Reject<kbd>x</kbd></button>
+  <button class="act skip" id="act-skip" data-shortcut="s" aria-label="Skip to the next item" title="Skip (s)">›<kbd>s</kbd></button>
 </div>
 
 <div class="scrim" id="scrim"></div>
@@ -216,26 +220,26 @@
   <h3>Read</h3>
   <p class="hint" id="read-hint"></p>
   <div class="dates" id="read-dates">
-    <button class="chip" data-due="">No date</button><button class="chip" data-due="0">Today</button>
-    <button class="chip" data-due="1">Tomorrow</button><button class="chip" data-due="7">In a week</button>
-    <label class="chip pick">Date…<input type="date" id="read-date"></label>
+    <button class="chip" data-due="" data-shortcut="n">No date<kbd>n</kbd></button><button class="chip" data-due="0" data-shortcut="t">Today<kbd>t</kbd></button>
+    <button class="chip" data-due="1" data-shortcut="m">Tomorrow<kbd>m</kbd></button><button class="chip" data-due="7" data-shortcut="w">In a week<kbd>w</kbd></button>
+    <label class="chip pick">Date…<input type="date" id="read-date" data-shortcut="d"><kbd>d</kbd></label>
   </div>
   <div class="tagchips" id="read-tags"></div>
-  <div class="sheet-buttons"><button data-close>Cancel</button></div>
+  <div class="sheet-buttons"><button data-close title="Cancel (Esc)">Cancel<kbd>Esc</kbd></button></div>
 </section>
 
 <section class="sheet" id="sheet-reject" aria-label="Reject">
   <h3>Reject – why?</h3>
   <p class="hint" id="reject-hint"></p>
   <div class="tagchips" id="reject-reasons"></div>
-  <div class="sheet-buttons"><button data-close>Cancel</button></div>
+  <div class="sheet-buttons"><button data-close title="Cancel (Esc)">Cancel<kbd>Esc</kbd></button></div>
 </section>
 
 <section class="sheet" id="sheet-note" aria-label="Note">
   <h3>Note</h3>
   <p class="hint" id="note-hint"></p>
   <textarea id="note-text" rows="5" placeholder="Compare with Gong 2024 …"></textarea>
-  <div class="sheet-buttons"><button data-close>Cancel</button><button class="primary" id="note-save">Save</button></div>
+  <div class="sheet-buttons"><button data-close title="Cancel (Esc)">Cancel<kbd>Esc</kbd></button><button class="primary" id="note-save" title="Save (Ctrl+Enter)">Save<kbd>Ctrl+Enter</kbd></button></div>
 </section>
 
 <section class="sheet" id="sheet-project" aria-label="Project">
@@ -243,7 +247,7 @@
   <p class="hint">It goes into the project’s “Litteratur (Claude).md” at Partitur’s next run, marked “föreslagen av dig”.</p>
   <input class="search" id="project-search" type="search" placeholder="Filter projects" autocomplete="off">
   <div class="plist" id="project-list"></div>
-  <div class="sheet-buttons"><button data-close>Close</button></div>
+  <div class="sheet-buttons"><button data-close title="Close (Esc)">Close<kbd>Esc</kbd></button></div>
 </section>
 
 <section class="sheet scroll" id="sheet-settings" aria-label="Settings">
@@ -288,7 +292,7 @@
     an address the feed’s address is put after (your own, e.g. the small Cloudflare Worker in this app’s repository;
     it sees which feeds you read). PubMed feeds and the searches need none.</p>
   <p class="hint" id="set-status"></p>
-  <div class="sheet-buttons"><button data-close>Close</button><button class="primary" id="set-save">Save</button></div>
+  <div class="sheet-buttons"><button data-close title="Close (Esc)">Close<kbd>Esc</kbd></button><button class="primary" id="set-save">Save</button></div>
 </section>
 
 <div class="toast" id="toast" role="status"><span id="toast-text"></span><button id="toast-undo">Undo</button></div>
@@ -694,6 +698,7 @@ async function load(skipSources) {
   if (!state.key || !state.userID) { openSettings(true); render(); return; }
   const showing = current() && current().key; // back from a link: stay on the same item
   setMain(`<div class="notice">Loading…</div>`);
+  setActions(false); // no item is showing to act on
   try {
     const colls = await getAll(userPath("/collections"));
     state.collections = colls.map(c => c.data).filter(c => !c.deleted);
@@ -860,16 +865,22 @@ function setActions(on) {
   const undoBtn = document.getElementById("undo"), n = state.history.length;
   undoBtn.disabled = !n || state.busy;
   document.getElementById("undo-count").textContent = n > 1 ? n : "";
-  undoBtn.title = n ? `Undo: ${state.history[n - 1].label}` : "Undo";
+  undoBtn.title = n ? `Undo: ${state.history[n - 1].label} (u)` : "Undo (u)";
 }
 
 // Read: on the phone one button and a sheet; with a mouse there is room for a button per reading tag, one click each.
-// The date is then a button of its own, opening the sheet
+// The date is then a button of its own, opening the sheet. With keys (the card's bar, the list's top bar, not its rows)
+// they have shortcuts too: r for the first reading tag, 2–9 for the next ones, d for the date
 const mouse = matchMedia("(hover: hover) and (pointer: fine)");
-function readButtons(readClass, dateClass, attr) {
+function readButtons(readClass, dateClass, attr, keys) {
   if (!mouse.matches) return `<button class="${readClass}" ${attr}>${readClass === "act read" ? "Read" : "Read…"}</button>`;
-  return cfg.readingTags.map(t => `<button class="${readClass}" ${attr} data-tag="${esc(t)}" title="Read: tag ${esc(t)}">${esc(t)}</button>`).join("")
-    + `<button class="${dateClass}" ${attr} title="Read, with a date">Date…</button>`;
+  const shortcut = (key, label) => key && keys ? { data: `data-shortcut="${key}"`, title: `${label} (${key})`, kbd: `<kbd>${key}</kbd>` }
+                                               : { data: "", title: label, kbd: "" };
+  const date = shortcut("d", "Read, with a date");
+  return cfg.readingTags.map((t, n) => {
+    const s = shortcut(n === 0 ? "r" : n < 9 ? String(n + 1) : "", `Read: tag ${esc(t)}`);
+    return `<button class="${readClass}" ${attr} data-tag="${esc(t)}" ${s.data} title="${s.title}">${esc(t)}${s.kbd}</button>`;
+  }).join("") + `<button class="${dateClass}" ${attr} ${date.data} title="${date.title}">Date…${date.kbd}</button>`;
 }
 
 // the note is Partitur's own HTML: only its paragraphs' text is shown
@@ -898,7 +909,7 @@ function render() {
   renderFields();
   document.body.classList.toggle("list", state.view === "list");
   document.body.classList.toggle("readbtns", mouse.matches);
-  document.getElementById("act-reads").innerHTML = readButtons("act read", "act date", "data-read");
+  document.getElementById("act-reads").innerHTML = readButtons("act read", "act date", "data-read", true);
   const list = visible();
   if (!state.key) { setMain(`<div class="notice">Add your Zotero API key in Settings.</div>`); setActions(false); return; }
   if (!state.watch.length) { setMain(`<div class="empty">No collection called “${esc(cfg.queue)}” in your library – make one in Zotero, or pick another in Settings.</div>`); setActions(false); return; }
@@ -923,11 +934,11 @@ function render() {
       <div class="why" id="why" hidden></div>
       <div class="related" id="related" hidden></div>
       <div class="projects">${itemProjects(d).map(l => `<span class="ptag">${esc(projectName(l))}<button data-unproject="${esc(l)}" aria-label="Remove from ${esc(projectName(l))}">×</button></span>`).join("")}
-        ${state.projects ? `<button class="add-project" id="add-project">＋ Project</button>` : ""}
-        <button class="add-project" id="add-note">✎ Note</button></div>
+        ${state.projects ? `<button class="add-project" id="add-project" data-shortcut="p" title="Put in a project (p)">＋ Project<kbd>p</kbd></button>` : ""}
+        <button class="add-project" id="add-note" data-shortcut="n" title="Note (n)">✎ Note<kbd>n</kbd></button></div>
       <div class="mynotes" id="mynotes"></div>
       ${d.abstractNote ? `<div class="abstract clamped" id="abstract">${esc(d.abstractNote)}</div>
-        <button class="linkish" id="more" hidden>Show all</button>` : `<p class="hint">No abstract.</p>`}
+        <button class="linkish" id="more" data-shortcut="a" title="Show all (a)" hidden>Show all<kbd>a</kbd></button>` : `<p class="hint">No abstract.</p>`}
       <div class="links" id="links">
         ${doi ? `<a href="${esc(doi)}" target="_blank" rel="noopener">DOI</a>` : ""}
         ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Web page</a>` : ""}
@@ -983,11 +994,11 @@ function renderList(list) {
   const rel = ["<span class=\"rel high\">High</span>", "<span class=\"rel\">Medium</span>", "<span class=\"rel low\">Low</span>", ""];
   setMain(`
     <div class="bulk">
-      <label><input type="checkbox" id="sel-all" ${n && n === list.length ? "checked" : ""}>
-        <span>${n ? `${n} of ${list.length} selected` : `${list.length} to go through – select all`}</span></label>
-      ${readButtons("b-read", "b-read b-open", `data-bulk="read" ${n ? "" : "disabled"}`)}
-      <button class="b-keep" data-bulk="keep" ${n ? "" : "disabled"}>Keep</button>
-      <button class="b-reject" data-bulk="reject" ${n ? "" : "disabled"}>Reject…</button>
+      <label title="Select all (a)"><input type="checkbox" id="sel-all" data-shortcut="a" ${n && n === list.length ? "checked" : ""}>
+        <span>${n ? `${n} of ${list.length} selected` : `${list.length} to go through – select all`}<kbd>a</kbd></span></label>
+      ${readButtons("b-read", "b-read b-open", `data-bulk="read" ${n ? "" : "disabled"}`, true)}
+      <button class="b-keep" data-bulk="keep" data-shortcut="k" title="Keep (k)" ${n ? "" : "disabled"}>Keep<kbd>k</kbd></button>
+      <button class="b-reject" data-bulk="reject" data-shortcut="x" title="Reject (x)" ${n ? "" : "disabled"}>Reject…<kbd>x</kbd></button>
     </div>
     <div class="rows">${list.map(item => {
       const d = item.data, why = state.notes.get(item.key);
@@ -1084,7 +1095,10 @@ function openRead() {
   const many = targetItems().length > 1 ? `${targetItems().length} items. ` : "";
   document.getElementById("read-hint").textContent = `${many}Tap the reading tag – after a date, if you want one. ${whereTo(targetItems()[0])}`;
   const tags = document.getElementById("read-tags");
-  tags.innerHTML = cfg.readingTags.map(t => `<button class="chip" data-tag="${t}" aria-pressed="${t === last}">${t}</button>`).join("");
+  tags.innerHTML = cfg.readingTags.map((t, n) => {
+    const key = n === 0 ? "r" : n < 9 ? String(n + 1) : "";
+    return `<button class="chip" data-tag="${t}" ${key ? `data-shortcut="${key}"` : ""} aria-pressed="${t === last}">${t}${key ? `<kbd>${key}</kbd>` : ""}</button>`;
+  }).join("");
   tags.onclick = e => { const b = e.target.closest("[data-tag]"); if (b) act("read", b.dataset.tag, due); };
   openSheet("sheet-read");
 }
@@ -1119,6 +1133,7 @@ async function openProjects() {
   search.oninput = draw;
   draw();
   openSheet("sheet-project");
+  if (mouse.matches) search.focus(); // filter straight away; Tab goes on to the projects
 }
 
 // the tag "projekt: <label>" on or off; the item stays in Bevakning (read, keep or reject it as before)
@@ -1209,7 +1224,7 @@ function openReject() {
   document.getElementById("reject-hint").textContent =
     (targetItems().length > 1 ? `${targetItems().length} items. ` : "")
     + `The reason is saved as a tag (${REJECT_PREFIX}…) – a tool that fills the collection can learn from it. The item goes to Zotero’s trash.`;
-  box.innerHTML = REASONS.map(([label, tag]) => `<button class="chip" data-reason="${esc(tag)}">${esc(label)}</button>`).join("");
+  box.innerHTML = REASONS.map(([label, tag], n) => `<button class="chip" data-reason="${esc(tag)}" data-shortcut="${n + 1}">${esc(label)}<kbd>${n + 1}</kbd></button>`).join("");
   box.onclick = e => { const b = e.target.closest("[data-reason]"); if (b) act("reject", b.dataset.reason); };
   openSheet("sheet-reject");
 }
@@ -1433,6 +1448,9 @@ document.getElementById("view").onclick = () => {
   window.scrollTo(0, 0);
 };
 document.getElementById("note-save").onclick = () => saveNote(document.getElementById("note-text").value);
+document.getElementById("note-text").onkeydown = e => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveNote(e.target.value);
+};
 document.getElementById("refresh").onclick = () => { state.notes.clear(); load(); };
 document.getElementById("open-settings").onclick = () => openSettings(false);
 document.getElementById("set-save").onclick = saveSettings;
@@ -1446,6 +1464,21 @@ document.getElementById("fields").onclick = e => {
   state.field = b.dataset.field; store.set("field", state.field === "all" ? "" : state.field);
   state.index = 0; render();
 };
+// shortcuts, with a mouse and keyboard: a key presses the button marked with it, if that button is showing and enabled –
+// only the open sheet's if there is one (Esc closes it), not while typing, and not again and again by holding the key down
+document.addEventListener("keydown", e => {
+  if (!mouse.matches || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const sheet = document.querySelector(".sheet.open");
+  if (e.key === "Escape" && sheet) { closeSheets(); return; }
+  if (e.target.closest("input:not([type=checkbox]), textarea, select, [contenteditable]")) return;
+  const marked = key => [...(sheet || document).querySelectorAll("[data-shortcut]")]
+    .find(b => b.dataset.shortcut === key && !b.disabled && b.getClientRects().length);
+  const key = e.key.toLowerCase();
+  const button = marked(key) || (key === "1" && marked("r")); // 1: the first reading tag, as 2–9 the next ones
+  if (!button) return;
+  e.preventDefault();
+  if (button.type === "date") button.showPicker(); else button.click();
+});
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.key && !state.busy && !document.querySelector(".sheet.open")) load(); });
 
 document.getElementById("title").textContent = cfg.queue;
